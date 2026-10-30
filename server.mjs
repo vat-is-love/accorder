@@ -37,6 +37,16 @@ export const server = http.createServer(async (req,res) => {
   }
   const match=url.pathname.match(/^\/api\/songs\/([^/]+)$/);
   if(match && !idPattern.test(match[1])) return send(res,400,{error:'Некорректный идентификатор.'});
+  if(match && req.method==='DELETE') {
+    const filename=path.join(songs,match[1]+'.json');
+    const previous=JSON.parse(await readFile(filename,'utf8'));
+    const exportFile=previous.exportFile;
+    const ownedExport=typeof exportFile==='string'&&path.basename(exportFile)===exportFile&&exportFile.endsWith('.txt')?exportFile:match[1]+'.txt';
+    try {await unlink(path.join(exportsDirectory,ownedExport));}
+    catch(error) {if(error.code!=='ENOENT')throw error;}
+    await unlink(filename);
+    return send(res,200,{id:match[1]});
+  }
   if(match && req.method==='GET') return send(res,200,JSON.parse(await readFile(path.join(songs,match[1]+'.json'),'utf8')));
   if((url.pathname==='/api/songs'&&req.method==='POST') || (match&&req.method==='PUT')) {
     const data=validate(await body(req));

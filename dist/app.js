@@ -1,4 +1,4 @@
-import {positions,layout,exportTxt,exportFilename,dictionary,remapChords} from './core.js';
+import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
 const $=id=>document.getElementById(id);
@@ -6,7 +6,7 @@ const browserMode=document.documentElement.dataset.storage!=='files';
 const storage=browserMode?new BrowserLibrary({name:'accorder:'+new URL('.',location.href).pathname}):new FileLibrary();
 $('browser-tools').hidden=!browserMode;
 $('storage-note').textContent=browserMode?'Песни хранятся в этом браузере':'Песни хранятся в папке songs/';
-let song=null, selected=null, dirty=false, matches=[], choice=-1, closed=false;
+let song=null, selected=null, dirty=false, matches=[], choice=-1, closed=false, activeTab='text', libraryBusy=false, chordSpelling='sharps';
 const status=message=>{$('status').textContent=message;};
 function changed(){dirty=true;status('Есть несохранённые изменения');}
 async function library(){
@@ -17,22 +17,116 @@ async function library(){
     const small=document.createElement('small');small.textContent=new Date(item.updatedAt).toLocaleDateString('ru-RU');button.append(small);
     button.classList.toggle('active',song?.id===item.id);
     button.onclick=async()=>{if(!canLeave())return;try{show(await storage.get(item.id));await library();}catch(e){status(e.message);}};
-    $('library').append(button);
+    const row=document.createElement('div');row.className='library-row';
+    const menu=document.createElement('details');menu.className='song-menu';
+    const toggle=document.createElement('summary');toggle.textContent='⋯';toggle.setAttribute('aria-label','Действия: '+item.title);
+    const actions=document.createElement('div');actions.className='song-actions';
+    for(const [label,action] of [['Сделать копию',()=>copySong(item)],['Удалить',()=>deleteSong(item)]]){
+      const control=document.createElement('button');control.textContent=label;control.onclick=()=>{menu.open=false;action();};actions.append(control);
+    }
+    menu.append(toggle,actions);menu.ontoggle=()=>{if(menu.open)for(const other of $('library').querySelectorAll('details'))if(other!==menu)other.open=false;};
+    row.append(button,menu);$('library').append(row);
   }
 }
+async function copySong(item){
+  if(libraryBusy||$('save').disabled)return;
+  libraryBusy=true;
+  try{
+    const original=await storage.get(item.id);
+    const {id,exportFile,updatedAt,...copy}=original;
+    copy.title=original.title.slice(0,190).replace(/[\uD800-\uDBFF]$/u,'')+' (копия)';
+    // Copy the saved version, without replacing any editor draft.
+    await storage.save(copy);await library();status('Копия сохранена');
+  }catch(error){status(error.message);}finally{libraryBusy=false;}
+}
+async function deleteSong(item){
+  if(libraryBusy||$('save').disabled)return;
+  if(!confirm(`Удалить песню «${item.title}» из хранилища?`))return;
+  if(song?.id===item.id&&!canLeave())return;
+  libraryBusy=true;
+  const target=song, snapshot=JSON.stringify(song), source=$('source').value;
+  try{
+    await storage.remove(item.id);
+    if(song?.id===item.id){
+      if(song===target&&JSON.stringify(song)===snapshot&&$('source').value===source){
+        song=null;selected=null;dirty=false;$('editor').hidden=true;$('welcome').hidden=false;
+        $('chord-editor').hidden=true;closeSuggestions();
+      }else{delete song.id;delete song.exportFile;changed();}
+    }
+    await library();status(dirty?'Песня удалена · есть несохранённые изменения':'Песня удалена');
+  }catch(error){status(error.message);}finally{libraryBusy=false;}
+}
+function syncSourceState(){
+  const pending=!!song&&$('source').value!==song.text;
+  for(const name of ['chords','preview']){
+    const tab=$('tab-'+name);
+    tab.disabled=pending;
+    if(pending)tab.setAttribute('aria-describedby','source-hint');
+    else tab.removeAttribute('aria-describedby');
+  }
+  $('apply').classList.toggle('primary',pending);
+  $('source-hint').hidden=!pending;
+}
+function setTab(name){
+  activeTab=name;
+  for(const tab of ['text','chords','preview']){
+    $('panel-'+tab).hidden=tab!==name;
+    $('tab-'+tab).setAttribute('aria-selected',String(tab===name));
+    $('tab-'+tab).tabIndex=tab===name?0:-1;
+  }
+  syncSourceState();
+  $('export').disabled=name!=='preview';
+  if(name==='preview')$('preview').textContent=exportTxt({...song,title:song.title||'Без названия'});
+}
+function switchTab(name){
+  if(!commit())return;
+  if(name!=='text'&&$('source').value!==song.text){status('Сначала примените изменения текста.');setTab('text');$('apply').focus();return;}
+  selected=null;$('chord-editor').hidden=true;closeSuggestions();render();setTab(name);
+}
+const tabs=['text','chords','preview'];
+for(const name of tabs){
+  $('tab-'+name).onclick=()=>switchTab(name);
+  $('tab-'+name).onkeydown=event=>{
+    const enabled=tabs.filter(tab=>!$('tab-'+tab).disabled),current=enabled.indexOf(name);
+    const next=event.key==='ArrowRight'?(current+1)%enabled.length:event.key==='ArrowLeft'?(current+enabled.length-1)%enabled.length:event.key==='Home'?0:event.key==='End'?enabled.length-1:null;
+    if(next===null)return;
+    event.preventDefault();switchTab(enabled[next]);$('tab-'+activeTab).focus();
+  };
+}
+function refreshPreview(){if(activeTab==='preview')$('preview').textContent=exportTxt({...song,title:song.title||'Без названия'});}
+function setChordSpelling(spelling){
+  chordSpelling=spelling;
+  for(const value of ['sharps','flats'])$('spelling-'+value).setAttribute('aria-pressed',String(value===spelling));
+}
+function transposeSong(step,spelling=chordSpelling){
+  if(!commit())return;
+  setChordSpelling(spelling);
+  let skipped=0,modified=false;
+  for(const [key,value] of Object.entries(song.chords)){
+    const transposed=transposeChord(value,step,spelling);
+    if(transposed===null){skipped++;continue;}
+    if(transposed!==value){song.chords[key]=transposed;modified=true;}
+  }
+  selected=null;$('chord-editor').hidden=true;closeSuggestions();
+  if(modified)changed();render();refreshPreview();
+  if(skipped)status(`Нераспознанных обозначений без изменений: ${skipped}${dirty?' · есть несохранённые изменения':''}`);
+}
+for(const [id,step] of [['transpose-down',-1],['transpose-up',1]])$(id).onclick=()=>transposeSong(step);
+for(const spelling of ['sharps','flats'])$('spelling-'+spelling).onclick=()=>transposeSong(0,spelling);
 function canLeave(){if(!commit())return false;return !dirty||confirm('Есть несохранённые изменения. Перейти без сохранения?');}
 function show(value){
-  song=value;selected=null;dirty=false;$('welcome').hidden=true;$('editor').hidden=false;
-  $('title').value=song.title;$('author').value=song.author||'';$('notes').value=song.notes||'';$('source').value=song.text;$('source-panel').open=!song.text;
+  song=value;selected=null;dirty=false;
+  setChordSpelling(Object.values(song.chords).some(chord=>/^[A-G][b♭]|\/[A-G][b♭]$/u.test(chord))?'flats':'sharps');$('welcome').hidden=true;$('editor').hidden=false;
+  $('title').value=song.title;$('author').value=song.author||'';$('notes').value=song.notes||'';$('source').value=song.text;setTab(song.text?'chords':'text');
   $('chord-editor').hidden=true;closeSuggestions();render();status(song.id?'Песня открыта':'Новая песня · ещё не сохранена');
 }
 function fresh(){if(canLeave()){show({title:'',author:'',text:'',notes:'',chords:{}});$('title').focus();library().catch(e=>status(e.message));}}
 $('new').onclick=fresh;$('first').onclick=fresh;
 function render(){
   // Keep the one real input alive when rebuilding the score.
-  $('editor').append($('chord-editor'));
+  $('panel-chords').append($('chord-editor'));
   $('score').replaceChildren();
-  if(!song.text){$('score').textContent='Добавьте текст песни выше и нажмите «Применить текст».';renderNotes();return;}
+  if(!song.text){$('score').textContent='Добавьте текст песни на вкладке «Текст» и нажмите «Применить текст».';renderNotes();return;}
   const all=positions(song.text);
   song.text.split('\n').forEach((line,row)=>{
     const wrapper=document.createElement('div');wrapper.className=line?'song-line':'blank';wrapper.dataset.row=row;
@@ -180,36 +274,37 @@ $('chord').onkeydown=e=>{
     if(!commit()){e.preventDefault();return;}
     closeSuggestions();const all=positions(song.text);const next=all.findIndex(p=>p.key===selected.key)+(e.shiftKey?-1:1);
     if(next>=0&&next<all.length){e.preventDefault();select(all[next]);}
-    else {e.preventDefault();selected=null;$('chord-editor').hidden=true;render();(e.shiftKey?$('apply'):$('save')).focus({preventScroll:true});}
+    else {e.preventDefault();selected=null;$('chord-editor').hidden=true;render();(e.shiftKey?$('transpose-up'):$('save')).focus({preventScroll:true});}
   }
 };
-$('title').oninput=()=>{song.title=$('title').value;changed();};
-$('author').oninput=()=>{song.author=$('author').value;changed();};
+$('title').oninput=()=>{song.title=$('title').value;changed();refreshPreview();};
+$('author').oninput=()=>{song.author=$('author').value;changed();refreshPreview();};
 $('notes').oninput=()=>{song.notes=$('notes').value;changed();renderNotes();};
-$('source').oninput=changed;
+$('source').oninput=()=>{changed();syncSourceState();};
 function applyText(){
   if($('source').value===song.text)return true;
   const text=$('source').value;
   song.chords=remapChords(song.text,text,song.chords);
-  song.text=text;selected=null;$('chord-editor').hidden=true;changed();render();$('source-panel').open=false;return true;
+  song.text=text;selected=null;$('chord-editor').hidden=true;changed();render();syncSourceState();return true;
 }
 $('apply').onclick=()=>{if(commit())applyText();};
 $('save').onclick=async()=>{
+  if(libraryBusy){status('Дождитесь завершения операции с библиотекой.');return;}
   if(!commit())return;
-  if($('source').value!==song.text){status('Сначала примените изменения текста или верните исходный текст.');$('source-panel').open=true;$('apply').focus();return;}
+  if($('source').value!==song.text){status('Сначала примените изменения текста или верните исходный текст.');setTab('text');$('apply').focus();return;}
   if(!song.title.trim()){status('Добавьте название песни.');$('title').focus();return;}
   $('save').disabled=true;
   const target=song, snapshot=JSON.stringify(song);
   try{
     const saved=await storage.save(song);
     if(song!==target){await library();return;}
-    if(JSON.stringify(song)===snapshot){song=saved;dirty=false;status(browserMode?'Сохранено в браузере':'Сохранено на компьютере');}else{song.id=saved.id;status('Сохранено · есть новые изменения');}
+    if(JSON.stringify(song)===snapshot){song=saved;dirty=false;refreshPreview();status(browserMode?'Сохранено в браузере':'Сохранено на компьютере');}else{song.id=saved.id;status('Сохранено · есть новые изменения');}
     await library();
   }catch(e){status(e.message);}finally{$('save').disabled=false;}
 };
 $('export').onclick=()=>{
-  if(!commit())return;
-  if($('source').value!==song.text){status('Сначала примените изменения текста.');$('source-panel').open=true;return;}
+  if(activeTab!=='preview'||!commit())return;
+  if($('source').value!==song.text){status('Сначала примените изменения текста.');setTab('text');return;}
   download(new Blob([exportTxt({...song,title:song.title||'Без названия'})],{type:'text/plain;charset=utf-8'}),exportFilename(song.title||'Песня'));
   status('TXT экспортирован · используйте моноширинный шрифт');
 };

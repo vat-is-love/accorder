@@ -119,6 +119,12 @@ export class BrowserLibrary {
     });
   }
   async save(value) {return (await this.putMany([value]))[0];}
+  async remove(id) {
+    return this.transaction(['songs','exports'], 'readwrite', tx => {
+      tx.objectStore('songs').delete(id);
+      tx.objectStore('exports').delete(id);
+    });
+  }
   async importSongs(values, options = {}) {return this.putMany(values, {...options, preserveDates:true});}
   async backup() {return {format:'accorder-library', version:1, songs:await this.all()};}
   async exportFiles() {
@@ -138,5 +144,6 @@ export class FileLibrary {
   }
   list() {return this.request('/api/songs');}
   get(id) {return this.request('/api/songs/' + id);}
+  remove(id) {return this.request('/api/songs/' + id, 'DELETE');}
   save(song) {return this.request('/api/songs' + (song.id ? '/' + song.id : ''), song.id ? 'PUT' : 'POST', song);}
 }

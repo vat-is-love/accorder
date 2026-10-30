@@ -89,3 +89,17 @@ test('simultaneous saves from two tabs serialize TXT filename assignment',async(
  assert.equal((await left.all()).length,2);assert.equal((await right.exportFiles()).length,2);
  await left.close();await right.close();
 });
+
+
+test('copy has independent ID and TXT; deletion removes only the selected song and export',async()=>{
+ const store=make(),original=await store.save(draft);
+ const {id,updatedAt,exportFile,...copy}=await store.get(original.id);
+ const saved=await store.save({...copy,title:copy.title+' (копия)'});
+ assert.notEqual(saved.id,original.id);assert.deepEqual(saved.chords,original.chords);
+ assert.equal(saved.notes,original.notes);assert.equal(saved.author,original.author);
+ await store.remove(original.id);
+ await assert.rejects(store.get(original.id),/не найдена/);
+ assert.deepEqual(await store.all(),[saved]);
+ assert.deepEqual((await store.exportFiles()).map(file=>file.id),[saved.id]);
+ assert.deepEqual((await store.backup()).songs,[saved]);await store.close();
+});

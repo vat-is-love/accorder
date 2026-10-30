@@ -183,3 +183,16 @@ export function exportFilename(title, occupied = []) {
   while (used.has(filename.toLowerCase())) filename = `${stem} (${suffix++}).txt`;
   return filename;
 }
+
+// Only recognized chord syntax is transposed; arbitrary user labels stay intact.
+export function transposeChord(chord, steps, spelling = 'sharps') {
+  const match = chord.match(/^([A-G])([#b♯♭]?)(?:(m|maj|min|dim|aug|sus|add|M|Δ|ø|°|\+|-)?([0-9]*(?:(?:maj|sus|add|[#b♯♭])[0-9]+)*(?:\([0-9,#b♯♭+\-]+\))?))(?:\/([A-G])([#b♯♭]?))?$/u);
+  if (!match) return null;
+  const notes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const flats = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+  const shift = (root, accidental) => {
+    const index = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[root] + (/[#♯]/u.test(accidental) ? 1 : /[b♭]/u.test(accidental) ? -1 : 0);
+    return (spelling === 'flats' ? flats : notes)[((index + steps) % 12 + 12) % 12];
+  };
+  return shift(match[1], match[2]) + (match[3] || '') + match[4] + (match[5] ? '/' + shift(match[5], match[6]) : '');
+}

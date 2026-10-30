@@ -39,6 +39,13 @@ test('file storage, reopen, restart, validation and local origin',async()=>{
   assert.equal((await fetch(base+'/api/songs/unsafe',{method:'PUT',body:JSON.stringify(data)})).status,400);
   assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,chords:{'0:99':'Am'}})})).status,400);
   assert.equal((await fetch(base+'/api/songs',{method:'POST',headers:{Origin:'http://evil.example'},body:JSON.stringify(data)})).status,403);
+  assert.equal((await fetch(base+'/api/songs/'+duplicate.id,{method:'DELETE',headers:{Origin:'http://evil.example'}})).status,403);
+  assert.equal((await fetch(base+'/api/songs/unsafe',{method:'DELETE'})).status,400);
+  assert.equal((await fetch(base+'/api/songs/'+duplicate.id,{method:'DELETE'})).status,200);
+  assert.equal((await fetch(base+'/api/songs/'+duplicate.id)).status,404);
+  assert.equal((await fetch(base+'/api/songs/'+duplicate.id,{method:'DELETE'})).status,404);
+  assert.ok(!(await readdir(path.join(dir,'exports'))).includes(duplicate.exportFile));
+  assert.equal(await readFile(path.join(dir,'exports',legacySaved.exportFile),'utf8'),exportTxt(legacySaved));
   assert.equal((await fetch(base+'/')).status,200);
  }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}
 });
