@@ -1,0 +1,44 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,readdir,rm,cp} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {exportTxt} from '../dist/core.js';
+test('file storage, reopen, restart, validation and local origin',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'accorder-test-'));
+ await cp(new URL('../server.mjs',import.meta.url),path.join(dir,'server.mjs'));
+ await cp(new URL('../dist',import.meta.url),path.join(dir,'dist'),{recursive:true});
+ const {server}=await import(pathToFileURL(path.join(dir,'server.mjs')));
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ let base='http://127.0.0.1:'+server.address().port;
+ const data={title:'Куплеты',author:'Автор песни',notes:'Тише\nПовторить',text:'Аё\n\nYou',chords:{'0:0':'F#madd9','0:1':'Cmaj7/G','2:1':'Am'}};
+ try{
+  const response=await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify(data)});assert.equal(response.status,200);
+  const saved=await response.json();assert.match(saved.id,/^[a-f0-9-]+$/);assert.equal(saved.exportFile,'Куплеты.txt');
+  assert.deepEqual(JSON.parse(await readFile(path.join(dir,'songs',saved.id+'.json'),'utf8')),saved);
+  assert.equal(await readFile(path.join(dir,'exports',saved.exportFile),'utf8'),exportTxt(saved));
+  assert.deepEqual(await (await fetch(base+'/api/songs/'+saved.id)).json(),saved);
+  await new Promise(resolve=>server.close(resolve));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base='http://127.0.0.1:'+server.address().port;
+  assert.equal((await (await fetch(base+'/api/songs')).json())[0].title,'Куплеты');
+  const reopened=await (await fetch(base+'/api/songs/'+saved.id)).json();
+  assert.deepEqual(reopened.chords,data.chords);assert.equal(reopened.author,data.author);assert.equal(reopened.notes,data.notes);
+  const updated=await (await fetch(base+'/api/songs/'+saved.id,{method:'PUT',body:JSON.stringify({...data,title:'Другое название',author:'Другой автор',notes:'Новая заметка'})})).json();
+  assert.equal(updated.author,'Другой автор');assert.equal(updated.notes,'Новая заметка');
+  assert.equal(await readFile(path.join(dir,'exports',updated.exportFile),'utf8'),exportTxt(updated));
+  assert.deepEqual(await readdir(path.join(dir,'exports')),['Другое название.txt']);
+  const {author,notes,...legacy}=data;
+  const legacySaved=await (await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify(legacy)})).json();
+  assert.equal(legacySaved.author,'');assert.equal(legacySaved.notes,'');
+  const duplicate=await (await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify(data)})).json();
+  assert.equal(duplicate.exportFile,'Куплеты (2).txt');
+  assert.equal(await readFile(path.join(dir,'exports',legacySaved.exportFile),'utf8'),exportTxt(legacySaved));
+  for(const notes of [null,123,{},[]])assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,notes})})).status,400);
+  for(const invalid of [null,123,'а'.repeat(201),'Автор\nСтрока'])assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,author:invalid})})).status,400);
+  assert.equal((await fetch(base+'/api/songs/unsafe',{method:'PUT',body:JSON.stringify(data)})).status,400);
+  assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,chords:{'0:99':'Am'}})})).status,400);
+  assert.equal((await fetch(base+'/api/songs',{method:'POST',headers:{Origin:'http://evil.example'},body:JSON.stringify(data)})).status,403);
+  assert.equal((await fetch(base+'/')).status,200);
+ }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}
+});

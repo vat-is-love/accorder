@@ -1,0 +1,16 @@
+{
+  "name": "accorder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "test:web": "node --test test/core.test.mjs test/remap.test.mjs test/storage.test.mjs test/archive.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.7"
+  }
+}

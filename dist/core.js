@@ -1,0 +1,185 @@
+export const vowels = /[аеёиоуыэюяaeiouy]/iu;
+export function positions(text) {
+  return text.split('\n').flatMap((line, row) => line.length ? [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), Array.from(line).length].map(index => ({row,index,key:`${row}:${index}`})) : []);
+}
+export function layout(line, row, chords, lyricIndent = 0) {
+  let text = '', track = '', lastEnd = -1;
+  const columns = {};
+  function put(index) {
+    const key = `${row}:${index}`, chord = chords[key] || '';
+    if (chord && text.length <= lastEnd) text += ' '.repeat(lastEnd + 1 - text.length);
+    columns[index] = text.length;
+    if (chord) {
+      track = track.padEnd(text.length, ' ') + chord;
+      lastEnd = text.length + chord.length;
+    }
+  }
+  put(-1);
+  if (lyricIndent > 0) text = text.padEnd(Math.max(lyricIndent, lastEnd + 1), ' ');
+  Array.from(line).forEach((c,i) => { if (vowels.test(c)) put(i); text += c; });
+  put(Array.from(line).length);
+  return {text,track,columns,width:Math.max(text.length,track.length)+2};
+}
+export function exportTxt(song) {
+  const author = (song.author || '').trim();
+  const text = song.text.split('\n').map((line,row) => {
+    if (!line) return '';
+    const result = layout(line,row,song.chords);
+    const track = result.track.trimEnd();
+    return track ? track + '\n' + result.text : result.text;
+  }).join('\n');
+  const notes = song.notes || '';
+  return song.title + (author ? '\n' + author : '') + '\n\n' + text + (notes.trim() ? (text ? '\n\n' : '') + notes : '') + '\n';
+}
+export const dictionary = ['A','B','C','D','E','F','G'].flatMap(root => ['', '#', 'b'].flatMap(acc => ['', 'm','7','m7','maj7','sus2','sus4','dim','aug','add9','9','m9','6'].map(type => root+acc+type)));
+
+// Match whole words first; only small edits within a matched word use character
+// alignment. This prevents a rewritten word from inheriting a coincidental vowel.
+export function remapChords(oldText, newText, chords) {
+  if (oldText === newText) return {...chords};
+  const oldChars = Array.from(oldText), newChars = Array.from(newText);
+  const wordChar = /[\p{L}\p{M}\p{N}]/u;
+  function words(chars) {
+    const result = [];
+    for (let i = 0; i < chars.length;) {
+      if (!wordChar.test(chars[i])) {i++; continue;}
+      const start = i;
+      while (i < chars.length && wordChar.test(chars[i])) i++;
+      result.push({start, end:i, value:chars.slice(start,i).join('')});
+    }
+    return result;
+  }
+  const oldWords = words(oldChars), newWords = words(newChars);
+  const charMap = new Map(), pairs = [];
+  let budget = 2000000;
+  // Return only matches present in every optimal alignment. Repeated words or
+  // letters with several equally good destinations are deliberately left out.
+  function certainMatches(a, b) {
+    const n=a.length, m=b.length, cells=(n+1)*(m+1);
+    if (cells > 300000 || cells > budget) return null;
+    budget -= cells;
+    const before=new Uint32Array(cells), after=new Uint32Array(cells), stride=m+1;
+    for(let i=0;i<n;i++)for(let j=0;j<m;j++)
+      before[(i+1)*stride+j+1]=a[i]===b[j]?before[i*stride+j]+1:Math.max(before[i*stride+j+1],before[(i+1)*stride+j]);
+    for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)
+      after[i*stride+j]=a[i]===b[j]?after[(i+1)*stride+j+1]+1:Math.max(after[(i+1)*stride+j],after[i*stride+j+1]);
+    const length=after[0], result=[];
+    for(let i=0;i<n;i++) {
+      let target=-1, ambiguous=false, removable=false;
+      for(let j=0;j<=m;j++) {
+        if(before[i*stride+j]+after[(i+1)*stride+j]===length)removable=true;
+        if(j<m&&a[i]===b[j]&&before[i*stride+j]+1+after[(i+1)*stride+j+1]===length) {
+          if(target!==-1)ambiguous=true;
+          target=j;
+        }
+      }
+      if(target!==-1&&!ambiguous&&!removable)result.push([i,target]);
+    }
+    return result;
+  }
+  function align(a0,a1,b0,b1,depth=0) {
+    if(a0===a1||b0===b1)return;
+    const exact=certainMatches(oldWords.slice(a0,a1).map(w=>w.value),newWords.slice(b0,b1).map(w=>w.value));
+    if(exact) {for(const [i,j] of exact)pairs.push([a0+i,b0+j]);return;}
+    if(depth>=16)return;
+    // Large gaps use unique words in order as anchors, then bounded local LCS.
+    // No whole-song quadratic matrix, and no guessing when the budget runs out.
+    const occurrences=(list,start,end)=>{
+      const map=new Map();
+      for(let i=start;i<end;i++)map.set(list[i].value,map.has(list[i].value)?-1:i);
+      return map;
+    };
+    const left=occurrences(oldWords,a0,a1),right=occurrences(newWords,b0,b1), candidates=[];
+    for(const [word,i] of left)if(i>=0&&Array.from(word).length>=3&&right.get(word)>=0)candidates.push([i,right.get(word)]);
+    const tails=[], previous=new Int32Array(candidates.length).fill(-1);
+    for(let k=0;k<candidates.length;k++) {
+      let lo=0,hi=tails.length;
+      while(lo<hi){const mid=(lo+hi)>>1;if(candidates[tails[mid]][1]<candidates[k][1])lo=mid+1;else hi=mid;}
+      if(lo)previous[k]=tails[lo-1];tails[lo]=k;
+    }
+    const anchors=[];
+    for(let k=tails.at(-1);k!==undefined&&k>=0;k=previous[k])anchors.push(candidates[k]);
+    anchors.reverse();
+    let ai=a0,bi=b0;
+    for(const [i,j] of anchors){align(ai,i,bi,j,depth+1);pairs.push([i,j]);ai=i+1;bi=j+1;}
+    if(anchors.length)align(ai,a1,bi,b1,depth+1);
+  }
+  align(0,oldWords.length,0,newWords.length);
+  pairs.sort((a,b)=>a[0]-b[0]);
+  function mapWord(i,j) {
+    const a=oldWords[i],b=newWords[j];
+    for(let k=0;k<a.end-a.start;k++)charMap.set(a.start+k,b.start+k);
+  }
+  for(const [i,j] of pairs)mapWord(i,j);
+  function mapGap(a0,a1,b0,b1) {
+    const a=oldWords.slice(a0,a1),b=newWords.slice(b0,b1);
+    if(!a.length||!b.length||a.length>4||b.length>4)return;
+    const av=a.map(w=>w.value).join(''),bv=b.map(w=>w.value).join('');
+    const ac=Array.from(av),bc=Array.from(bv);
+    if(Math.max(ac.length,bc.length)>200)return;
+    const offsets=ws=>ws.flatMap(w=>Array.from({length:w.end-w.start},(_,k)=>w.start+k));
+    const ao=offsets(a),bo=offsets(b);
+    if(av===bv) {
+      // Only whitespace/line-boundary changes between these words.
+      for(let k=0;k<ao.length;k++)charMap.set(ao[k],bo[k]);
+    } else if(a.length===1&&b.length===1) {
+      const matched=certainMatches(ac,bc);
+      if(!matched)return;
+      // At most one changed character, and at least two thirds of each word
+      // unchanged. Short replacements and ambiguous repeated letters lose chords.
+      const unchanged=matched.length;
+      if(Math.min(ac.length,bc.length)<3||unchanged*3<Math.max(ac.length,bc.length)*2||Math.max(ac.length,bc.length)-unchanged>1)return;
+      for(const [i,j] of matched)charMap.set(ao[i],bo[j]);
+    }
+  }
+  let ai=0,bi=0;
+  for(const [i,j] of pairs){mapGap(ai,i,bi,j);ai=i+1;bi=j+1;}
+  mapGap(ai,oldWords.length,bi,newWords.length);
+  function rows(chars) {
+    const result=[],locations=[];
+    let row=0,index=0,start=0;
+    for(let i=0;i<=chars.length;i++) {
+      if(i===chars.length||chars[i]==='\n') {
+        const letters=[];
+        for(let k=start;k<i;k++)if(wordChar.test(chars[k]))letters.push(k);
+        result.push({start,length:i-start,first:letters[0],last:letters.at(-1)});
+        row++;index=0;start=i+1;
+      } else {locations[i]={row,index};index++;}
+    }
+    return {lines:result,locations};
+  }
+  const oldRows=rows(oldChars),newRows=rows(newChars),result={},collisions=new Set();
+  for(const [key,chord] of Object.entries(chords)) {
+    const [row,index]=key.split(':').map(Number),line=oldRows.lines[row];
+    if(!line)continue;
+    let target;
+    if(index===-1||index===line.length) {
+      const at=index===-1?line.first:line.last;
+      const mapped=charMap.get(at),place=newRows.locations[mapped];
+      if(!place)continue;
+      const next=newRows.lines[place.row];
+      if(mapped!==(index===-1?next.first:next.last))continue;
+      target=`${place.row}:${index===-1?-1:next.length}`;
+    } else {
+      if(index<0||index>=line.length||!vowels.test(oldChars[line.start+index]))continue;
+      const mapped=charMap.get(line.start+index),place=newRows.locations[mapped];
+      if(!place||!vowels.test(newChars[mapped]))continue;
+      target=`${place.row}:${place.index}`;
+    }
+    if(Object.hasOwn(result,target)){delete result[target];collisions.add(target);}
+    else if(!collisions.has(target))result[target]=chord;
+  }
+  return result;
+}
+
+export function exportFilename(title, occupied = []) {
+  let stem = title.normalize('NFC').replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_').replace(/[. ]+$/g, '').trim() || 'Песня';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(stem)) stem = '_' + stem;
+  const chars = Array.from(stem);
+  while (new TextEncoder().encode(chars.join('')).length > 180) chars.pop();
+  stem = chars.join('');
+  const used = new Set(occupied.map(name => name.normalize('NFC').toLowerCase()));
+  let filename = stem + '.txt', suffix = 2;
+  while (used.has(filename.toLowerCase())) filename = `${stem} (${suffix++}).txt`;
+  return filename;
+}

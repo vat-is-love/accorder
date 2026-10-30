@@ -1,0 +1,9 @@
+node_modules/
+songs/
+exports/
+release/
+*.tmp
+core
+core.*
+!dist/core.js
+!test/core.test.mjs
