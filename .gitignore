@@ -7,3 +7,4 @@ core
 core.*
 !dist/core.js
 !test/core.test.mjs
+MY_README.md
