@@ -1,6 +1,40 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {positions,layout,exportTxt,exportFilename} from '../dist/core.js';
+import {positions,layout,exportTxt,exportFilename,importChordText} from '../dist/core.js';
+
+test('import chord tracks preserves verses and maps columns to valid vowels',()=>{
+ const result=importChordText('Куплет:\n Am   F\nМама дома\n\n Cmaj7/G\nYou');
+ assert.equal(result.text,'Куплет:\nМама дома\n\nYou');
+ assert.deepEqual(result.chords,{'1:1':'Am','1:6':'F','3:1':'Cmaj7/G'});
+ assert.equal(result.imported,3);
+ assert.equal(result.retained,0);
+ const valid=new Set(positions(result.text).map(p=>p.key));
+ for(const key of Object.keys(result.chords))assert.ok(valid.has(key));
+ assert.match(exportTxt({title:'Песня',...result}),/Cmaj7\/G/);
+});
+
+test('import handles boundaries, Unicode columns, CRLF, tabs and nonbreaking spaces',()=>{
+ const result=importChordText('Am\tG\r\n  Мама\r\n\r\n\u00a0F\r\n😀а');
+ assert.equal(result.text,'  Мама\n\n😀а');
+ assert.deepEqual(result.chords,{'0:-1':'Am','0:6':'G','2:1':'F'});
+ assert.equal(importChordText('Am\rа').text,'а');
+});
+
+test('import retains standalone tracks, headings and unknown text without deletion',()=>{
+ const result=importChordText('Am G\n\nПрипев:\n Am\nМама\nF C\nG');
+ assert.equal(result.text,'Am G\n\nПрипев:\nМама\nF C\nG');
+ assert.deepEqual(result.chords,{'3:1':'Am'});
+ assert.equal(result.retained,3);
+ const unknown=importChordText('C6/9 ?\n Am\nМама');
+ assert.equal(unknown.text,'C6/9 ?\nМама');
+});
+
+test('import refuses missing tracks and conflicting positions without returning partial data',()=>{
+ for(const source of ['Мама дома','Am G','Am\n\nМама'])assert.throws(()=>importChordText(source),/Не найдены/);
+ assert.throws(()=>importChordText('C D\nбаббб'),/Строка 1/);
+ assert.throws(()=>importChordText('Am\nжжж'),/не помещаются/);
+ assert.throws(()=>importChordText('Am\nМама\nC D\nбаббб'),/Строка 3/);
+});
 test('vowels in both alphabets, case, edges and empty verses',()=>{
  const text='Аё Я\n\nAEy\nритм';
  assert.deepEqual(positions(text).map(p=>p.key),['0:-1','0:0','0:1','0:3','0:4','2:-1','2:0','2:1','2:2','2:3','3:-1','3:1','3:4']);

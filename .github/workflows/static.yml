@@ -33,11 +33,15 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare versioned assets
+        run: node scripts/prepare-pages.mjs "$RUNNER_TEMP/accorder-pages"
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: dist
+          path: ${{ runner.temp }}/accorder-pages
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

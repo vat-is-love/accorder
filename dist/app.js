@@ -1,4 +1,4 @@
-import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord} from './core.js';
+import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
 const $=id=>document.getElementById(id);
@@ -288,6 +288,18 @@ function applyText(){
   song.text=text;selected=null;$('chord-editor').hidden=true;changed();render();syncSourceState();return true;
 }
 $('apply').onclick=()=>{if(commit())applyText();};
+$('apply-chords').onclick=()=>{
+  if(!commit())return;
+  try{
+    const result=importChordText($('source').value);
+    song.chords={...remapChords(song.text,result.text,song.chords),...result.chords};
+    song.text=result.text;$('source').value=result.text;
+    selected=null;$('chord-editor').hidden=true;closeSuggestions();
+    setChordSpelling(Object.values(song.chords).some(chord=>/^[A-G][b♭]|\/[A-G][b♭]$/u.test(chord))?'flats':'sharps');
+    changed();render();setTab('chords');
+    status(`Импортировано аккордов: ${result.imported}${result.retained?` · строк аккордов без слов оставлено в тексте: ${result.retained}`:''} · есть несохранённые изменения`);
+  }catch(error){status(error.message);}
+};
 $('save').onclick=async()=>{
   if(libraryBusy){status('Дождитесь завершения операции с библиотекой.');return;}
   if(!commit())return;

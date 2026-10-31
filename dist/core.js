@@ -33,6 +33,52 @@ export function exportTxt(song) {
 }
 export const dictionary = ['A','B','C','D','E','F','G'].flatMap(root => ['', '#', 'b'].flatMap(acc => ['', 'm','7','m7','maj7','sus2','sus4','dim','aug','add9','9','m9','6'].map(type => root+acc+type)));
 
+// Plain-text chord tracks use character columns, before layout adds spacing.
+export function importChordText(source) {
+  const lines = source.replace(/\r\n?/g, '\n').split('\n').map(line => {
+    let expanded = '', column = 0;
+    for (const char of line) {
+      const value = char === '\t' ? ' '.repeat(8 - column % 8) : char;
+      expanded += value; column += char === '\t' ? value.length : 1;
+    }
+    return expanded.replace(/\u00a0/g, ' ');
+  });
+  function track(line) {
+    const tokens = Array.from(line.matchAll(/\S+/gu));
+    return tokens.length && tokens.every(token => token[0].length <= 40 && transposeChord(token[0], 0) !== null)
+      ? tokens.map(token => ({value:token[0], column:Array.from(line.slice(0, token.index)).length})) : null;
+  }
+  const text = [], chords = {};
+  let imported = 0, retained = 0;
+  for (let row = 0; row < lines.length; row++) {
+    const tokens = track(lines[row]), next = lines[row + 1];
+    if (!tokens || !next?.trim() || track(next)) {
+      text.push(lines[row]);
+      if (tokens) retained++;
+      continue;
+    }
+    const chars = Array.from(next), first = chars.findIndex(char => /\S/u.test(char));
+    let end = chars.length;
+    while (end > 0 && /\s/u.test(chars[end - 1])) end--;
+    const anchors = chars.flatMap((char,index) => vowels.test(char) ? [index] : []);
+    const used = new Set();
+    for (const token of tokens) {
+      let index;
+      if (token.column < first) index = -1;
+      else if (token.column >= end) index = chars.length;
+      else index = anchors.reduce((best, candidate) => best === null || Math.abs(candidate - token.column) < Math.abs(best - token.column) ? candidate : best, null);
+      if (index === null || used.has(index)) throw new Error(`Строка ${row + 1}: аккорды не помещаются в доступные позиции. Исправьте их расположение и повторите импорт.`);
+      used.add(index);
+      chords[`${text.length}:${index}`] = token.value;
+      imported++;
+    }
+    text.push(next);
+    row++;
+  }
+  if (!imported) throw new Error('Не найдены строки аккордов над текстом. Вставьте аккорды отдельными строками над словами.');
+  return {text:text.join('\n'), chords, imported, retained};
+}
+
 // Match whole words first; only small edits within a matched word use character
 // alignment. This prevents a rewritten word from inheriting a coincidental vowel.
 export function remapChords(oldText, newText, chords) {

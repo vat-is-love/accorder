@@ -19,9 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare versioned assets
+        run: node scripts/prepare-pages.mjs "$RUNNER_TEMP/accorder-pages"
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: ${{ runner.temp }}/accorder-pages
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
