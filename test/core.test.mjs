@@ -35,6 +35,17 @@ test('import refuses missing tracks and conflicting positions without returning 
  assert.throws(()=>importChordText('Am\nжжж'),/не помещаются/);
  assert.throws(()=>importChordText('Am\nМама\nC D\nбаббб'),/Строка 3/);
 });
+
+test('H chords import unchanged, transpose as B and work in slash bass',async()=>{
+ const {transposeChord}=await import('../dist/core.js');
+ const result=importChordText(' Hm   F#/H\nМама дома');
+ assert.deepEqual(result.chords,{'0:1':'Hm','0:6':'F#/H'});
+ assert.equal(transposeChord('Hm',1),'Cm');
+ assert.equal(transposeChord('H7',-1,'flats'),'Bb7');
+ assert.equal(transposeChord('F#/H',1),'G/C');
+ assert.equal(transposeChord('B',0),'B');
+ assert.equal(transposeChord('H',0),'B');
+});
 test('vowels in both alphabets, case, edges and empty verses',()=>{
  const text='Аё Я\n\nAEy\nритм';
  assert.deepEqual(positions(text).map(p=>p.key),['0:-1','0:0','0:1','0:3','0:4','2:-1','2:0','2:1','2:2','2:3','3:-1','3:1','3:4']);

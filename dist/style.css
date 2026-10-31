@@ -17,3 +17,5 @@
 .transpose{flex-wrap:wrap}.chord-spelling{display:flex;gap:4px}.chord-spelling [aria-pressed=true]{background:#dce6d7;border-color:#9aaf91}
 
 .apply-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}@media(max-width:560px){.apply-buttons{justify-content:flex-start}}
+
+.source-import{margin-bottom:16px}.source-import button{font-size:12px}

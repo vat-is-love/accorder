@@ -31,7 +31,7 @@ export function exportTxt(song) {
   const notes = song.notes || '';
   return song.title + (author ? '\n' + author : '') + '\n\n' + text + (notes.trim() ? (text ? '\n\n' : '') + notes : '') + '\n';
 }
-export const dictionary = ['A','B','C','D','E','F','G'].flatMap(root => ['', '#', 'b'].flatMap(acc => ['', 'm','7','m7','maj7','sus2','sus4','dim','aug','add9','9','m9','6'].map(type => root+acc+type)));
+export const dictionary = ['A','B','C','D','E','F','G','H'].flatMap(root => ['', '#', 'b'].flatMap(acc => ['', 'm','7','m7','maj7','sus2','sus4','dim','aug','add9','9','m9','6'].map(type => root+acc+type)));
 
 // Plain-text chord tracks use character columns, before layout adds spacing.
 export function importChordText(source) {
@@ -52,7 +52,7 @@ export function importChordText(source) {
   let imported = 0, retained = 0;
   for (let row = 0; row < lines.length; row++) {
     const tokens = track(lines[row]), next = lines[row + 1];
-    if (!tokens || !next?.trim() || track(next)) {
+    if (!tokens || !next?.trim() || track(next) || /^\s*\[[^\]\n]+\]\s*:?\s*$/u.test(next)) {
       text.push(lines[row]);
       if (tokens) retained++;
       continue;
@@ -232,12 +232,12 @@ export function exportFilename(title, occupied = []) {
 
 // Only recognized chord syntax is transposed; arbitrary user labels stay intact.
 export function transposeChord(chord, steps, spelling = 'sharps') {
-  const match = chord.match(/^([A-G])([#b♯♭]?)(?:(m|maj|min|dim|aug|sus|add|M|Δ|ø|°|\+|-)?([0-9]*(?:(?:maj|sus|add|[#b♯♭])[0-9]+)*(?:\([0-9,#b♯♭+\-]+\))?))(?:\/([A-G])([#b♯♭]?))?$/u);
+  const match = chord.match(/^([A-H])([#b♯♭]?)(?:(m|maj|min|dim|aug|sus|add|M|Δ|ø|°|\+|-)?([0-9]*(?:(?:maj|sus|add|[#b♯♭])[0-9]+)*(?:\([0-9,#b♯♭+\-]+\))?))(?:\/([A-H])([#b♯♭]?))?$/u);
   if (!match) return null;
   const notes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const flats = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
   const shift = (root, accidental) => {
-    const index = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[root] + (/[#♯]/u.test(accidental) ? 1 : /[b♭]/u.test(accidental) ? -1 : 0);
+    const index = {C:0,D:2,E:4,F:5,G:7,A:9,B:11,H:11}[root] + (/[#♯]/u.test(accidental) ? 1 : /[b♭]/u.test(accidental) ? -1 : 0);
     return (spelling === 'flats' ? flats : notes)[((index + steps) % 12 + 12) % 12];
   };
   return shift(match[1], match[2]) + (match[3] || '') + match[4] + (match[5] ? '/' + shift(match[5], match[6]) : '');

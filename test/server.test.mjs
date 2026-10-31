@@ -47,5 +47,9 @@ test('file storage, reopen, restart, validation and local origin',async()=>{
   assert.ok(!(await readdir(path.join(dir,'exports'))).includes(duplicate.exportFile));
   assert.equal(await readFile(path.join(dir,'exports',legacySaved.exportFile),'utf8'),exportTxt(legacySaved));
   assert.equal((await fetch(base+'/')).status,200);
+  const amdmModule=await fetch(base+'/amdm.js');
+  assert.equal(amdmModule.status,200);
+  assert.match(amdmModule.headers.get('content-type'),/javascript/);
+  assert.match(await amdmModule.text(),/export function parseAmdmHtml/);
  }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}
 });

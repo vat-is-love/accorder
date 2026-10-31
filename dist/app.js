@@ -1,6 +1,7 @@
 import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
+import {parseAmdmHtml} from './amdm.js';
 const $=id=>document.getElementById(id);
 const browserMode=document.documentElement.dataset.storage!=='files';
 const storage=browserMode?new BrowserLibrary({name:'accorder:'+new URL('.',location.href).pathname}):new FileLibrary();
@@ -8,6 +9,9 @@ $('browser-tools').hidden=!browserMode;
 $('storage-note').textContent=browserMode?'Песни хранятся в этом браузере':'Песни хранятся в папке songs/';
 let song=null, selected=null, dirty=false, matches=[], choice=-1, closed=false, activeTab='text', libraryBusy=false, chordSpelling='sharps';
 const status=message=>{$('status').textContent=message;};
+document.addEventListener('click',event=>{
+  for(const menu of $('library').querySelectorAll('.song-menu[open]'))if(!menu.contains(event.target))menu.open=false;
+});
 function changed(){dirty=true;status('Есть несохранённые изменения');}
 async function library(){
   const list=await storage.list(); $('count').textContent=list.length; $('library').replaceChildren();
@@ -116,7 +120,7 @@ for(const spelling of ['sharps','flats'])$('spelling-'+spelling).onclick=()=>tra
 function canLeave(){if(!commit())return false;return !dirty||confirm('Есть несохранённые изменения. Перейти без сохранения?');}
 function show(value){
   song=value;selected=null;dirty=false;
-  setChordSpelling(Object.values(song.chords).some(chord=>/^[A-G][b♭]|\/[A-G][b♭]$/u.test(chord))?'flats':'sharps');$('welcome').hidden=true;$('editor').hidden=false;
+  setChordSpelling(Object.values(song.chords).some(chord=>/^[A-H][b♭]|\/[A-H][b♭]$/u.test(chord))?'flats':'sharps');$('welcome').hidden=true;$('editor').hidden=false;
   $('title').value=song.title;$('author').value=song.author||'';$('notes').value=song.notes||'';$('source').value=song.text;setTab(song.text?'chords':'text');
   $('chord-editor').hidden=true;closeSuggestions();render();status(song.id?'Песня открыта':'Новая песня · ещё не сохранена');
 }
@@ -288,17 +292,33 @@ function applyText(){
   song.text=text;selected=null;$('chord-editor').hidden=true;changed();render();syncSourceState();return true;
 }
 $('apply').onclick=()=>{if(commit())applyText();};
+function applyImported(result,{metadata=false}={}){
+  song.chords=metadata?result.chords:{...remapChords(song.text,result.text,song.chords),...result.chords};
+  song.text=result.text;$('source').value=result.text;
+  if(metadata){song.title=result.title;song.author=result.author;$('title').value=result.title;$('author').value=result.author;}
+  selected=null;$('chord-editor').hidden=true;closeSuggestions();
+  setChordSpelling(Object.values(song.chords).some(chord=>/^[A-H][b♭]|\/[A-H][b♭]$/u.test(chord))?'flats':'sharps');
+  changed();render();setTab('chords');
+  status(`Импортировано аккордов: ${result.imported}${result.retained?` · строк аккордов без слов оставлено в тексте: ${result.retained}`:''} · есть несохранённые изменения`);
+}
 $('apply-chords').onclick=()=>{
   if(!commit())return;
   try{
-    const result=importChordText($('source').value);
-    song.chords={...remapChords(song.text,result.text,song.chords),...result.chords};
-    song.text=result.text;$('source').value=result.text;
-    selected=null;$('chord-editor').hidden=true;closeSuggestions();
-    setChordSpelling(Object.values(song.chords).some(chord=>/^[A-G][b♭]|\/[A-G][b♭]$/u.test(chord))?'flats':'sharps');
-    changed();render();setTab('chords');
-    status(`Импортировано аккордов: ${result.imported}${result.retained?` · строк аккордов без слов оставлено в тексте: ${result.retained}`:''} · есть несохранённые изменения`);
+    applyImported(importChordText($('source').value));
   }catch(error){status(error.message);}
+};
+$('import-amdm').onclick=()=>{if(commit())$('amdm-file').click();};
+$('amdm-file').onchange=async()=>{
+  const file=$('amdm-file').files[0];$('amdm-file').value='';
+  if(!file||!commit())return;
+  const target=song,snapshot=JSON.stringify(song),source=$('source').value;
+  $('import-amdm').disabled=true;
+  try{
+    if(file.size>2*1024*1024)throw new Error('Страница AMDM слишком большая (максимум 2 МиБ).');
+    const result=parseAmdmHtml(await file.text());
+    if(song!==target||JSON.stringify(song)!==snapshot||$('source').value!==source){status('Редактор изменён во время чтения файла. Повторите импорт.');return;}
+    applyImported(result,{metadata:true});
+  }catch(error){status(error.message);}finally{$('import-amdm').disabled=false;}
 };
 $('save').onclick=async()=>{
   if(libraryBusy){status('Дождитесь завершения операции с библиотекой.');return;}

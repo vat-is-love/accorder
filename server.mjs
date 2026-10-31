@@ -77,7 +77,7 @@ export const server = http.createServer(async (req,res) => {
     }
     return send(res,200,song);
   }
-  const files={'/':'index.html','/app.js':'app.js','/core.js':'core.js','/storage.js':'storage.js','/archive.js':'archive.js','/style.css':'style.css'};
+  const files={'/':'index.html','/app.js':'app.js','/core.js':'core.js','/storage.js':'storage.js','/archive.js':'archive.js','/amdm.js':'amdm.js','/style.css':'style.css'};
   if(req.method==='GET' && files[url.pathname]) {
     const name=files[url.pathname];
     res.writeHead(200,{'Content-Type':name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});
