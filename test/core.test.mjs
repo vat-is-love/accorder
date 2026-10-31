@@ -2,6 +2,25 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {positions,layout,exportTxt,exportFilename,importChordText} from '../dist/core.js';
 
+test('text-only marker removes all slots and chord spacing but stays in source',()=>{
+ const text='Мама\n! Тише\n!G Hm\n!\n\nДома!';
+ assert.deepEqual(positions(text).map(p=>p.key),['0:-1','0:1','0:3','0:4','5:-1','5:1','5:3','5:5']);
+ const chords={'1:-1':'G','1:3':'Am','1:6':'C'};
+ assert.deepEqual(layout('! Тише',1,chords,2),{text:'  Тише',track:'',columns:{},width:8});
+ assert.equal(layout('!!Важно',0,{}).text,'!Важно');
+ assert.equal(layout(' !Тише',0,{}).text,' !Тише');
+ assert.equal(exportTxt({title:'Песня',text,chords}),'Песня\n\nМама\nТише\nG Hm\n\n\nДома!\n');
+ assert.equal(text,'Мама\n! Тише\n!G Hm\n!\n\nДома!');
+});
+
+test('chord import preserves marked lines and never binds preceding chords to them',()=>{
+ const result=importChordText(' G\n! Тише\n!Am G\n Am\nМама');
+ assert.equal(result.text,' G\n! Тише\n!Am G\nМама');
+ assert.deepEqual(result.chords,{'3:1':'Am'});
+ assert.equal(result.retained,1);
+ assert.equal(result.imported,1);
+});
+
 test('import chord tracks preserves verses and maps columns to valid vowels',()=>{
  const result=importChordText('Куплет:\n Am   F\nМама дома\n\n Cmaj7/G\nYou');
  assert.equal(result.text,'Куплет:\nМама дома\n\nYou');

@@ -22,6 +22,18 @@ test('unchanged text preserves all bindings without mutating the input',()=>{
  const result=remapChords('Мама','Мама',chords);
  assert.deepEqual(result,chords);assert.notEqual(result,chords);
 });
+test('marking a line removes vowel and edge chords without changing other lines',()=>{
+ const old='Мама\nДома',text='! Мама\nДома';
+ const chords={'0:-1':'G','0:1':'Am','0:3':'F','0:4':'C','1:1':'Dm'};
+ assert.deepEqual(remapChords(old,text,chords),{'1:1':'Dm'});
+ assert.deepEqual(remapChords(text,'Мама\nДома',{'1:1':'Dm'}),{'1:1':'Dm'});
+ assert.equal(Object.keys(chords).length,5);
+});
+test('chords cannot move into or out of marked rows during splits and merges',()=>{
+ assert.deepEqual(remapChords('Мама дома','Мама\n! дома',{'0:1':'Am','0:6':'G','0:9':'F'}),{'0:1':'Am'});
+ assert.deepEqual(remapChords('! Мама\nДома','Мама Дома',{'0:3':'Am','1:1':'Dm'}),{'0:6':'Dm'});
+ assert.deepEqual(remapChords('!Мама\nДома','!Мама\nДома',{'0:2':'Am','1:1':'Dm'}),{'1:1':'Dm'});
+});
 test('insertions, deletions and typos before a surviving vowel',()=>{
  transfer('Мама дома','Моя Мама дома','дома','дома',1,1);
  transfer('Мама дома','Мама вдома','дома','вдома',1,2);

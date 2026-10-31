@@ -19,3 +19,5 @@
 .apply-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}@media(max-width:560px){.apply-buttons{justify-content:flex-start}}
 
 .source-import{margin-bottom:16px}.source-import button{font-size:12px}
+
+.text-only-line{height:auto;min-height:1.5em}.text-only-line .lyric{padding-top:0}

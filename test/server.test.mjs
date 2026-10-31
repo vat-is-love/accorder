@@ -51,5 +51,12 @@ test('file storage, reopen, restart, validation and local origin',async()=>{
   assert.equal(amdmModule.status,200);
   assert.match(amdmModule.headers.get('content-type'),/javascript/);
   assert.match(await amdmModule.text(),/export function parseAmdmHtml/);
+  const textOnly={...data,title:'Текст без аккордов',text:'! Тише\nМама',chords:{'1:1':'Am'}};
+  const textOnlyResponse=await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify(textOnly)});
+  assert.equal(textOnlyResponse.status,200);
+  const textOnlySaved=await textOnlyResponse.json();
+  assert.equal(textOnlySaved.text,textOnly.text);
+  assert.match(await readFile(path.join(dir,'exports',textOnlySaved.exportFile),'utf8'),/\nТише\n Am\nМама/);
+  assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...textOnly,chords:{'0:3':'G'}})})).status,400);
  }finally{await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}
 });

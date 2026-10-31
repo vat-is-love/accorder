@@ -6,6 +6,16 @@ import {exportTxt} from '../dist/core.js';
 const draft={title:'Песня',author:'Автор',text:'Мама\n\nYou',notes:'Тише\nПовторить',chords:{'0:1':'Am','2:1':'F'}};
 const make=()=>new BrowserLibrary({factory:new IDBFactory()});
 
+test('text-only lines roundtrip with markers and export without markers or chords',async()=>{
+ const store=make();
+ const saved=await store.save({...draft,text:'! Тише\nМама',chords:{'1:1':'Am'}});
+ assert.equal((await store.get(saved.id)).text,'! Тише\nМама');
+ assert.equal((await store.backup()).songs[0].text,'! Тише\nМама');
+ assert.match((await store.exportFiles())[0].text,/\nТише\n Am\nМама/);
+ assert.throws(()=>normalizeSong({...saved,chords:{'0:3':'G'}}),/позиция/);
+ await store.close();
+});
+
 test('save, close, reopen and read every song field with matching TXT',async()=>{
  const factory=new IDBFactory(), first=new BrowserLibrary({factory});
  const saved=await first.save(draft);

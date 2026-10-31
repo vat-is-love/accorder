@@ -1,8 +1,13 @@
 export const vowels = /[аеёиоуыэюяaeiouy]/iu;
+export const isTextOnlyLine = line => line.startsWith('!');
 export function positions(text) {
-  return text.split('\n').flatMap((line, row) => line.length ? [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), Array.from(line).length].map(index => ({row,index,key:`${row}:${index}`})) : []);
+  return text.split('\n').flatMap((line, row) => line.length && !isTextOnlyLine(line) ? [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), Array.from(line).length].map(index => ({row,index,key:`${row}:${index}`})) : []);
 }
 export function layout(line, row, chords, lyricIndent = 0) {
+  if (isTextOnlyLine(line)) {
+    const text = ' '.repeat(lyricIndent) + line.slice(1).replace(/^ /u, '');
+    return {text,track:'',columns:{},width:text.length+2};
+  }
   let text = '', track = '', lastEnd = -1;
   const columns = {};
   function put(index) {
@@ -52,7 +57,7 @@ export function importChordText(source) {
   let imported = 0, retained = 0;
   for (let row = 0; row < lines.length; row++) {
     const tokens = track(lines[row]), next = lines[row + 1];
-    if (!tokens || !next?.trim() || track(next) || /^\s*\[[^\]\n]+\]\s*:?\s*$/u.test(next)) {
+    if (!tokens || !next?.trim() || isTextOnlyLine(next) || track(next) || /^\s*\[[^\]\n]+\]\s*:?\s*$/u.test(next)) {
       text.push(lines[row]);
       if (tokens) retained++;
       continue;
@@ -82,7 +87,10 @@ export function importChordText(source) {
 // Match whole words first; only small edits within a matched word use character
 // alignment. This prevents a rewritten word from inheriting a coincidental vowel.
 export function remapChords(oldText, newText, chords) {
-  if (oldText === newText) return {...chords};
+  if (oldText === newText) {
+    const lines = newText.split('\n');
+    return Object.fromEntries(Object.entries(chords).filter(([key]) => !isTextOnlyLine(lines[Number(key.split(':')[0])] || '')));
+  }
   const oldChars = Array.from(oldText), newChars = Array.from(newText);
   const wordChar = /[\p{L}\p{M}\p{N}]/u;
   function words(chars) {
@@ -188,7 +196,7 @@ export function remapChords(oldText, newText, chords) {
       if(i===chars.length||chars[i]==='\n') {
         const letters=[];
         for(let k=start;k<i;k++)if(wordChar.test(chars[k]))letters.push(k);
-        result.push({start,length:i-start,first:letters[0],last:letters.at(-1)});
+        result.push({start,length:i-start,first:letters[0],last:letters.at(-1),textOnly:chars[start]==='!'});
         row++;index=0;start=i+1;
       } else {locations[i]={row,index};index++;}
     }
@@ -197,19 +205,20 @@ export function remapChords(oldText, newText, chords) {
   const oldRows=rows(oldChars),newRows=rows(newChars),result={},collisions=new Set();
   for(const [key,chord] of Object.entries(chords)) {
     const [row,index]=key.split(':').map(Number),line=oldRows.lines[row];
-    if(!line)continue;
+    if(!line||line.textOnly)continue;
     let target;
     if(index===-1||index===line.length) {
       const at=index===-1?line.first:line.last;
       const mapped=charMap.get(at),place=newRows.locations[mapped];
       if(!place)continue;
       const next=newRows.lines[place.row];
+      if(next.textOnly)continue;
       if(mapped!==(index===-1?next.first:next.last))continue;
       target=`${place.row}:${index===-1?-1:next.length}`;
     } else {
       if(index<0||index>=line.length||!vowels.test(oldChars[line.start+index]))continue;
       const mapped=charMap.get(line.start+index),place=newRows.locations[mapped];
-      if(!place||!vowels.test(newChars[mapped]))continue;
+      if(!place||newRows.lines[place.row].textOnly||!vowels.test(newChars[mapped]))continue;
       target=`${place.row}:${place.index}`;
     }
     if(Object.hasOwn(result,target)){delete result[target];collisions.add(target);}

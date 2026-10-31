@@ -1,4 +1,4 @@
-import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText} from './core.js';
+import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
 import {parseAmdmHtml} from './amdm.js';
@@ -134,6 +134,7 @@ function render(){
   const all=positions(song.text);
   song.text.split('\n').forEach((line,row)=>{
     const wrapper=document.createElement('div');wrapper.className=line?'song-line':'blank';wrapper.dataset.row=row;
+    if(isTextOnlyLine(line))wrapper.classList.add('text-only-line');
     if(line){
       const result=layout(line,row,song.chords,2);wrapper.style.width=`${result.width}ch`;
       const lyric=document.createElement('div');lyric.className='lyric';lyric.textContent=result.text;wrapper.append(lyric);
