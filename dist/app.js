@@ -152,7 +152,7 @@ function slotButton(pos,line,result){
   button.textContent=chord||'·';button.style.left=`${result.columns[pos.index]}ch`;
   button.dataset.position=pos.key;
   const place=pos.index===-1?'перед строкой':pos.index>=Array.from(line).length?'после строки, позиция '+(pos.index-Array.from(line).length+1):`буква «${Array.from(line)[pos.index]}», позиция ${pos.index+1}`;
-  button.setAttribute('aria-label',`Строка ${row+1}, ${place}${chord?', аккорд '+chord:', добавить аккорд'}`);
+  button.setAttribute('aria-label',`Строка ${pos.row+1}, ${place}${chord?', аккорд '+chord:', добавить аккорд'}`);
   button.onclick=()=>select(pos);return button;
 }
 function renderNotes(){
