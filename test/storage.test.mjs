@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {IDBFactory} from 'fake-indexeddb';
 import {BrowserLibrary,normalizeSong,parseImport} from '../dist/storage.js';
 import {exportTxt} from '../dist/core.js';
-const draft={title:'Песня',author:'Автор',text:'Мама\n\nYou',notes:'Тише\nПовторить',chords:{'0:1':'Am','2:1':'F'}};
+const draft={title:'Песня',author:'Автор',text:'Мама\n\nYou',notes:'Тише\nПовторить',chords:{'0:1':'Am','2:1':'F','2:3':'Am','2:4':'G'}};
 const make=()=>new BrowserLibrary({factory:new IDBFactory()});
 
 test('text-only lines roundtrip with markers and export without markers or chords',async()=>{
@@ -64,7 +64,7 @@ test('import conflict requires explicit replacement; entire batch remains intact
 });
 test('invalid imported bindings and unsupported backups cannot partially change storage',async()=>{
  const store=make();await store.save(draft);
- await assert.rejects(store.importSongs([draft,{...draft,chords:{'0:999':'C'}}]),/позиция/);
+ await assert.rejects(store.importSongs([draft,{...draft,chords:{'0:1.5':'C'}}]),/позиция/);
  assert.equal((await store.all()).length,1);
  assert.throws(()=>parseImport({format:'accorder-library',version:99,songs:[]}),/формат/);
  assert.throws(()=>parseImport(null),/файл/);

@@ -1,29 +1,50 @@
 export const vowels = /[аеёиоуыэюяaeiouy]/iu;
 export const isTextOnlyLine = line => line.startsWith('!');
-export function positions(text) {
-  return text.split('\n').flatMap((line, row) => line.length && !isTextOnlyLine(line) ? [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), Array.from(line).length].map(index => ({row,index,key:`${row}:${index}`})) : []);
+function trailingPositions(line, row, chords) {
+  const end = Array.from(line).length, indices = new Set([end]);
+  for (const key of Object.keys(chords)) {
+    const [r, index] = key.split(':').map(Number);
+    if (r === row && Number.isSafeInteger(index) && index >= end && index < Number.MAX_SAFE_INTEGER - 1 && key === `${row}:${index}`) indices.add(index);
+  }
+  const sorted = [...indices].sort((a,b) => a-b), last = sorted.at(-1);
+  if (chords[`${row}:${last}`]) sorted.push(last + 1);
+  return sorted;
+}
+export function positions(text, chords = {}, firstRow = 0) {
+  return text.split('\n').flatMap((line, offset) => {
+    if (!line.length || isTextOnlyLine(line)) return [];
+    const row = firstRow + offset;
+    return [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), ...trailingPositions(line, row, chords)]
+      .map(index => ({row,index,key:`${row}:${index}`}));
+  });
 }
 export function layout(line, row, chords, lyricIndent = 0) {
   if (isTextOnlyLine(line)) {
     const text = ' '.repeat(lyricIndent) + line.slice(1).replace(/^ /u, '');
     return {text,track:'',columns:{},width:text.length+2};
   }
+  const chars = Array.from(line);
   let text = '', track = '', lastEnd = -1;
   const columns = {};
-  function put(index) {
+  function put(index, column = text.length) {
     const key = `${row}:${index}`, chord = chords[key] || '';
-    if (chord && text.length <= lastEnd) text += ' '.repeat(lastEnd + 1 - text.length);
-    columns[index] = text.length;
+    if (chord && column <= lastEnd) column = lastEnd + 1;
+    if (index < chars.length) text = text.padEnd(column, ' ');
+    columns[index] = column;
     if (chord) {
-      track = track.padEnd(text.length, ' ') + chord;
-      lastEnd = text.length + chord.length;
+      track = track.padEnd(column, ' ') + chord;
+      lastEnd = column + chord.length;
     }
   }
   put(-1);
   if (lyricIndent > 0) text = text.padEnd(Math.max(lyricIndent, lastEnd + 1), ' ');
-  Array.from(line).forEach((c,i) => { if (vowels.test(c)) put(i); text += c; });
-  put(Array.from(line).length);
-  return {text,track,columns,width:Math.max(text.length,track.length)+2};
+  chars.forEach((c,i) => { if (vowels.test(c)) put(i); text += c; });
+  let column = Math.max(text.length + 2, lastEnd + 2);
+  for (const index of trailingPositions(line, row, chords)) {
+    put(index, column);
+    column += (chords[`${row}:${index}`] || '·').length + 2;
+  }
+  return {text,track,columns,width:Math.max(text.length,track.length,column-2)+2};
 }
 export function exportTxt(song) {
   const author = (song.author || '').trim();
@@ -70,7 +91,10 @@ export function importChordText(source) {
     for (const token of tokens) {
       let index;
       if (token.column < first) index = -1;
-      else if (token.column >= end) index = chars.length;
+      else if (token.column >= end) {
+        index = chars.length;
+        while (used.has(index)) index++;
+      }
       else index = anchors.reduce((best, candidate) => best === null || Math.abs(candidate - token.column) < Math.abs(best - token.column) ? candidate : best, null);
       if (index === null || used.has(index)) throw new Error(`Строка ${row + 1}: аккорды не помещаются в доступные позиции. Исправьте их расположение и повторите импорт.`);
       used.add(index);
@@ -207,14 +231,14 @@ export function remapChords(oldText, newText, chords) {
     const [row,index]=key.split(':').map(Number),line=oldRows.lines[row];
     if(!line||line.textOnly)continue;
     let target;
-    if(index===-1||index===line.length) {
+    if(index===-1||index>=line.length) {
       const at=index===-1?line.first:line.last;
       const mapped=charMap.get(at),place=newRows.locations[mapped];
       if(!place)continue;
       const next=newRows.lines[place.row];
       if(next.textOnly)continue;
       if(mapped!==(index===-1?next.first:next.last))continue;
-      target=`${place.row}:${index===-1?-1:next.length}`;
+      target=`${place.row}:${index===-1?-1:next.length+index-line.length}`;
     } else {
       if(index<0||index>=line.length||!vowels.test(oldChars[line.start+index]))continue;
       const mapped=charMap.get(line.start+index),place=newRows.locations[mapped];

@@ -10,7 +10,7 @@ export function normalizeSong(value, {newId = () => crypto.randomUUID(), now = (
   if (value.notes !== undefined && typeof value.notes !== 'string') throw new Error('Примечания должны быть текстом.');
   if (!value.chords || typeof value.chords !== 'object' || Array.isArray(value.chords)) throw new Error('Некорректная разметка аккордов.');
   if (value.id !== undefined && !uuid.test(value.id)) throw new Error('Некорректный идентификатор песни.');
-  const valid = new Set(positions(value.text).map(p => p.key)), chords = {};
+  const valid = new Set(positions(value.text, value.chords).map(p => p.key)), chords = {};
   for (const [key, chord] of Object.entries(value.chords)) {
     if (!valid.has(key) || typeof chord !== 'string' || !chord || chord.length > 40 || /[\s\x00-\x1f\x7f]/u.test(chord)) throw new Error('Некорректная позиция или обозначение аккорда.');
     chords[key] = chord;

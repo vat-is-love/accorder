@@ -100,3 +100,11 @@ test('large repetitive rewrites safely discard uncertain matches',()=>{
  const old='мама '.repeat(2000),next='мама '.repeat(1000);
  assert.deepEqual(remapChords(old,next,{'0:1':'Am'}),{});
 });
+
+
+test('all trailing chords follow the surviving end of a changed or split line',()=>{
+ const chords={'0:9':'Am','0:10':'G','0:11':'F'};
+ assert.deepEqual(remapChords('Мама дома','дома',chords),{'0:4':'Am','0:5':'G','0:6':'F'});
+ assert.deepEqual(remapChords('Мама дома','Мама\nдома',chords),{'1:4':'Am','1:5':'G','1:6':'F'});
+ assert.deepEqual(remapChords('Мама дома','!Мама дома',chords),{});
+});

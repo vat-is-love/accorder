@@ -72,8 +72,8 @@ test('vowels in both alphabets, case, edges and empty verses',()=>{
 test('adjacent long chords stretch lyrics and preserve exact anchors',()=>{
  const chords={'0:-1':'Amaj7','0:0':'F#madd9','0:1':'Cmaj7/G','0:2':'G7sus4'};
  const result=layout('ао',0,chords);
- assert.equal(result.track,'Amaj7 F#madd9 Cmaj7/G G7sus4');
- assert.equal(result.text,'      а       о       ');
+ assert.equal(result.track,'Amaj7 F#madd9 Cmaj7/G  G7sus4');
+ assert.equal(result.text,'      а       о');
  for(const index of [0,1]) assert.equal(result.text[result.columns[index]],Array.from('ао')[index]);
  assert.deepEqual(chords,{'0:-1':'Amaj7','0:0':'F#madd9','0:1':'Cmaj7/G','0:2':'G7sus4'});
 });
@@ -131,4 +131,19 @@ test('spelling choice consistently controls roots and bass without altering exte
    const shifted=transposeChord(root+'m/'+root,step,spelling);
    assert.equal(transposeChord(shifted,-step,'sharps'),root+'m/'+root);
  }
+});
+
+
+test('trailing chords add a new slot and keep two spaces after lyrics and chords',()=>{
+ const chords={'0:4':'Am','0:5':'G7','0:6':'F'};
+ assert.deepEqual(positions('Мама',chords).map(p=>p.index),[-1,1,3,4,5,6,7]);
+ const result=layout('Мама',0,chords,2);
+ assert.equal(result.text,'  Мама');
+ assert.equal(result.track,'        Am  G7  F');
+ assert.equal(result.columns[7],19);
+ assert.equal(exportTxt({title:'Песня',text:'Мама',chords}),'Песня\n\n      Am  G7  F\nМама\n');
+ const remaining={'0:4':'Am','0:6':'F'};
+ assert.deepEqual(positions('Мама',remaining).map(p=>p.index),[-1,1,3,4,6,7]);
+ assert.equal(layout('Мама',0,remaining).track,'      Am  F');
+ assert.deepEqual(importChordText('      Am  G7  F\nМама').chords,chords);
 });

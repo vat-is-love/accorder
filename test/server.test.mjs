@@ -12,7 +12,7 @@ test('file storage, reopen, restart, validation and local origin',async()=>{
  const {server}=await import(pathToFileURL(path.join(dir,'server.mjs')));
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  let base='http://127.0.0.1:'+server.address().port;
- const data={title:'Куплеты',author:'Автор песни',notes:'Тише\nПовторить',text:'Аё\n\nYou',chords:{'0:0':'F#madd9','0:1':'Cmaj7/G','2:1':'Am'}};
+ const data={title:'Куплеты',author:'Автор песни',notes:'Тише\nПовторить',text:'Аё\n\nYou',chords:{'0:0':'F#madd9','0:1':'Cmaj7/G','2:1':'Am','2:3':'G','2:4':'F'}};
  try{
   const response=await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify(data)});assert.equal(response.status,200);
   const saved=await response.json();assert.match(saved.id,/^[a-f0-9-]+$/);assert.equal(saved.exportFile,'Куплеты.txt');
@@ -37,7 +37,7 @@ test('file storage, reopen, restart, validation and local origin',async()=>{
   for(const notes of [null,123,{},[]])assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,notes})})).status,400);
   for(const invalid of [null,123,'а'.repeat(201),'Автор\nСтрока'])assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,author:invalid})})).status,400);
   assert.equal((await fetch(base+'/api/songs/unsafe',{method:'PUT',body:JSON.stringify(data)})).status,400);
-  assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,chords:{'0:99':'Am'}})})).status,400);
+  assert.equal((await fetch(base+'/api/songs',{method:'POST',body:JSON.stringify({...data,chords:{'0:1.5':'Am'}})})).status,400);
   assert.equal((await fetch(base+'/api/songs',{method:'POST',headers:{Origin:'http://evil.example'},body:JSON.stringify(data)})).status,403);
   assert.equal((await fetch(base+'/api/songs/'+duplicate.id,{method:'DELETE',headers:{Origin:'http://evil.example'}})).status,403);
   assert.equal((await fetch(base+'/api/songs/unsafe',{method:'DELETE'})).status,400);

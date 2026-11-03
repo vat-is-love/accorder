@@ -131,7 +131,7 @@ function render(){
   $('panel-chords').append($('chord-editor'));
   $('score').replaceChildren();
   if(!song.text){$('score').textContent='Добавьте текст песни на вкладке «Текст» и нажмите «Применить текст».';renderNotes();return;}
-  const all=positions(song.text);
+  const all=positions(song.text,song.chords);
   song.text.split('\n').forEach((line,row)=>{
     const wrapper=document.createElement('div');wrapper.className=line?'song-line':'blank';wrapper.dataset.row=row;
     if(isTextOnlyLine(line))wrapper.classList.add('text-only-line');
@@ -139,18 +139,21 @@ function render(){
       const result=layout(line,row,song.chords,2);wrapper.style.width=`${result.width}ch`;
       const lyric=document.createElement('div');lyric.className='lyric';lyric.textContent=result.text;wrapper.append(lyric);
       for(const pos of all.filter(p=>p.row===row)){
-        const button=document.createElement('button');const chord=song.chords[pos.key];
-        button.className='slot '+(chord?'filled':'empty')+(selected?.key===pos.key?' selected':'');
-        button.textContent=chord||'·';button.style.left=`${result.columns[pos.index]}ch`;
-        button.dataset.position=pos.key;
-        const place=pos.index===-1?'перед строкой':pos.index===Array.from(line).length?'после строки':`буква «${Array.from(line)[pos.index]}», позиция ${pos.index+1}`;
-        button.setAttribute('aria-label',`Строка ${row+1}, ${place}${chord?', аккорд '+chord:', добавить аккорд'}`);
-        button.onclick=()=>select(pos);wrapper.append(button);
+        wrapper.append(slotButton(pos,line,result));
       }
     }
     $('score').append(wrapper);
   });
   renderNotes();placeEditor();
+}
+function slotButton(pos,line,result){
+  const button=document.createElement('button');const chord=song.chords[pos.key];
+  button.className='slot '+(chord?'filled':'empty')+(selected?.key===pos.key?' selected':'');
+  button.textContent=chord||'·';button.style.left=`${result.columns[pos.index]}ch`;
+  button.dataset.position=pos.key;
+  const place=pos.index===-1?'перед строкой':pos.index>=Array.from(line).length?'после строки, позиция '+(pos.index-Array.from(line).length+1):`буква «${Array.from(line)[pos.index]}», позиция ${pos.index+1}`;
+  button.setAttribute('aria-label',`Строка ${row+1}, ${place}${chord?', аккорд '+chord:', добавить аккорд'}`);
+  button.onclick=()=>select(pos);return button;
 }
 function renderNotes(){
   let notes=$('score').querySelector('.score-notes');
@@ -172,8 +175,14 @@ function updateLine(){
   if(!row)return;
   const draft={...song.chords};
   const value=$('chord').value.trim();
-  if(value)draft[selected.key]=value;else delete draft[selected.key];
-  const result=layout(song.text.split('\n')[selected.row],selected.row,draft,2);
+  draft[selected.key]=value;
+  const line=song.text.split('\n')[selected.row];
+  const result=layout(line,selected.row,draft,2);
+  const available=positions(line,draft,selected.row);
+  const keys=new Set(available.map(pos=>pos.key));
+  // Keep the active empty slot until editing ends, without replacing the input.
+  for(const slot of row.querySelectorAll('.slot'))if(!keys.has(slot.dataset.position)&&slot.dataset.position!==selected.key)slot.remove();
+  for(const pos of available)if(!row.querySelector(`[data-position="${pos.key}"]`))row.append(slotButton(pos,line,result));
   row.style.width=`${result.width}ch`;
   row.querySelector('.lyric').textContent=result.text;
   for(const slot of row.querySelectorAll('.slot')){
@@ -216,7 +225,7 @@ function select(pos){
   if(!commit())return;
   const previous=selected;
   selected=pos;$('chord-editor').hidden=false;$('chord').value=song.chords[pos.key]||'';
-  $('position-label').textContent=`строка ${pos.row+1} · ${pos.index===-1?'начало':pos.index===Array.from(song.text.split('\n')[pos.row]).length?'конец':'буква '+(pos.index+1)}`;
+  $('position-label').textContent=`строка ${pos.row+1} · ${pos.index===-1?'начало':pos.index>=Array.from(song.text.split('\n')[pos.row]).length?'конец, позиция '+(pos.index-Array.from(song.text.split('\n')[pos.row]).length+1):'буква '+(pos.index+1)}`;
   $('chord').setAttribute('aria-label','Аккорд, '+$('position-label').textContent);
   if(previous){
     const slot=$('score').querySelector(`[data-position="${previous.key}"]`);
@@ -268,7 +277,11 @@ $('chord').onkeydown=e=>{
   if(e.key==='Escape'){e.preventDefault();if(!$('suggestions').hidden){closed=true;closeSuggestions();}else finishEditing();return;}
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){
     e.preventDefault();if(!matches.length){closed=false;suggestions();}
-    if(matches.length){choice=(choice+(e.key==='ArrowDown'?1:-1)+matches.length)%matches.length;drawSuggestions();}return;
+    if(matches.length){
+      choice=choice<0?(e.key==='ArrowDown'?0:matches.length-1):(choice+(e.key==='ArrowDown'?1:-1)+matches.length)%matches.length;
+      $('chord').value=matches[choice];commit();updateLine();drawSuggestions();
+    }
+    return;
   }
   if(e.key==='Enter'){
     e.preventDefault();
@@ -277,7 +290,7 @@ $('chord').onkeydown=e=>{
   }
   if(e.key==='Tab'){
     if(!commit()){e.preventDefault();return;}
-    closeSuggestions();const all=positions(song.text);const next=all.findIndex(p=>p.key===selected.key)+(e.shiftKey?-1:1);
+    closeSuggestions();const all=positions(song.text,{...song.chords,[selected.key]:$('chord').value.trim()});const next=all.findIndex(p=>p.key===selected.key)+(e.shiftKey?-1:1);
     if(next>=0&&next<all.length){e.preventDefault();select(all[next]);}
     else {e.preventDefault();selected=null;$('chord-editor').hidden=true;render();(e.shiftKey?$('transpose-up'):$('save')).focus({preventScroll:true});}
   }
