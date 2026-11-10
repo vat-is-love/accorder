@@ -20,9 +20,10 @@ function validate(data) {
   if(typeof data.title!=='string'|| !data.title.trim() || data.title.length>200 || typeof data.text!=='string' || !data.chords || typeof data.chords!=='object' || Array.isArray(data.chords)) throw Object.assign(new Error('Проверьте название, текст и аккорды.'),{status:400});
   if(data.author!==undefined&&(typeof data.author!=='string'||data.author.length>200||/[\x00-\x1f\x7f]/u.test(data.author))) throw Object.assign(new Error('Проверьте автора песни (максимум 200 символов, одна строка).'),{status:400});
   if(data.notes!==undefined&&typeof data.notes!=='string') throw Object.assign(new Error('Примечания должны быть текстом.'),{status:400});
+  if(data.transposeOffset!==undefined&&!Number.isSafeInteger(data.transposeOffset)) throw Object.assign(new Error('Некорректный сдвиг тональности.'),{status:400});
   const valid = new Set(positions(data.text, data.chords).map(p=>p.key));
   for(const [key,value] of Object.entries(data.chords)) if(!valid.has(key)||typeof value!=='string'||value.length>40||/[\s\x00-\x1f\x7f]/u.test(value)||!value) throw Object.assign(new Error('Некорректная позиция или обозначение аккорда.'),{status:400});
-  return {version:1,title:data.title.trim(),author:(data.author||'').trim(),text:data.text,notes:data.notes||'',chords:data.chords};
+  return {version:1,title:data.title.trim(),author:(data.author||'').trim(),text:data.text,notes:data.notes||'',chords:data.chords,transposeOffset:data.transposeOffset||0};
 }
 export const server = http.createServer(async (req,res) => {
  try {

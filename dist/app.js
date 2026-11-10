@@ -137,6 +137,16 @@ function setChordSpelling(spelling){
   chordSpelling=spelling;
   for(const value of ['sharps','flats'])$('spelling-'+value).setAttribute('aria-pressed',String(value===spelling));
 }
+function syncTranspose(){
+  const offset=song?.transposeOffset||0;
+  $('transpose-offset').textContent=offset>0?'+'+offset:String(offset);
+  $('transpose-offset').hidden=offset===0;
+  $('transpose-apply').hidden=offset===0;
+}
+$('transpose-apply').onclick=()=>{
+  if(!commit())return;
+  song.transposeOffset=0;syncTranspose();changed();
+};
 function transposeSong(step,spelling=chordSpelling){
   if(!commit())return;
   setChordSpelling(spelling);
@@ -147,14 +157,15 @@ function transposeSong(step,spelling=chordSpelling){
     if(transposed!==value){song.chords[key]=transposed;modified=true;}
   }
   selected=null;$('chord-editor').hidden=true;closeSuggestions();
-  if(modified)changed();render();refreshPreview();
+  if(modified){song.transposeOffset=(song.transposeOffset||0)+step;changed();}
+  syncTranspose();render();refreshPreview();
   if(skipped)status(`Нераспознанных обозначений без изменений: ${skipped}${dirty?' · есть несохранённые изменения':''}`);
 }
 for(const [id,step] of [['transpose-down',-1],['transpose-up',1]])$(id).onclick=()=>transposeSong(step);
 for(const spelling of ['sharps','flats'])$('spelling-'+spelling).onclick=()=>transposeSong(0,spelling);
 function canLeave(){if(!commit())return false;return !dirty||confirm('Есть несохранённые изменения. Перейти без сохранения?');}
 function show(value){
-  song=value;selected=null;dirty=false;
+  song=value;selected=null;dirty=false;syncTranspose();
   setChordSpelling(Object.values(song.chords).some(chord=>/^[A-H][b♭]|\/[A-H][b♭]$/u.test(chord))?'flats':'sharps');$('welcome').hidden=true;$('editor').hidden=false;
   $('title').value=song.title;$('author').value=song.author||'';$('notes').value=song.notes||'';$('source').value=song.text;setTab(song.text?'chords':'text');
   $('chord-editor').hidden=true;closeSuggestions();render();status(song.id?'Песня открыта':'Новая песня · ещё не сохранена');
@@ -342,6 +353,7 @@ function applyText(){
 }
 $('apply').onclick=()=>{if(commit())applyText();};
 function applyImported(result,{metadata=false}={}){
+  if(metadata){song.transposeOffset=0;syncTranspose();}
   song.chords=metadata?result.chords:{...remapChords(song.text,result.text,song.chords),...result.chords};
   song.text=result.text;$('source').value=result.text;
   if(metadata){song.title=result.title;song.author=result.author;$('title').value=result.title;$('author').value=result.author;}

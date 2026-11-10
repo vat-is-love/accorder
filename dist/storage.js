@@ -8,6 +8,7 @@ export function normalizeSong(value, {newId = () => crypto.randomUUID(), now = (
   if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > 200 || typeof value.text !== 'string') throw new Error('Проверьте название и текст песни.');
   if (value.author !== undefined && (typeof value.author !== 'string' || value.author.length > 200 || /[\x00-\x1f\x7f]/u.test(value.author))) throw new Error('Проверьте автора песни (максимум 200 символов, одна строка).');
   if (value.notes !== undefined && typeof value.notes !== 'string') throw new Error('Примечания должны быть текстом.');
+  if (value.transposeOffset !== undefined && !Number.isSafeInteger(value.transposeOffset)) throw new Error('Некорректный сдвиг тональности.');
   if (!value.chords || typeof value.chords !== 'object' || Array.isArray(value.chords)) throw new Error('Некорректная разметка аккордов.');
   if (value.id !== undefined && !uuid.test(value.id)) throw new Error('Некорректный идентификатор песни.');
   const valid = new Set(positions(value.text, value.chords).map(p => p.key)), chords = {};
@@ -15,7 +16,7 @@ export function normalizeSong(value, {newId = () => crypto.randomUUID(), now = (
     if (!valid.has(key) || typeof chord !== 'string' || !chord || chord.length > 40 || /[\s\x00-\x1f\x7f]/u.test(chord)) throw new Error('Некорректная позиция или обозначение аккорда.');
     chords[key] = chord;
   }
-  return {version:1, id:value.id || newId(), title:value.title.trim(), author:(value.author || '').trim(), text:value.text, notes:value.notes || '', chords,
+  return {version:1, id:value.id || newId(), title:value.title.trim(), author:(value.author || '').trim(), text:value.text, notes:value.notes || '', chords, transposeOffset:value.transposeOffset || 0,
     updatedAt:typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) ? new Date(value.updatedAt).toISOString() : now()};
 }
 

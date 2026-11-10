@@ -24,3 +24,21 @@ test('slot buttons render labels and select positions on each song row',async()=
   button.onclick();assert.equal(clicked,pos);
  }
 });
+
+test('transpose offset accumulates, survives spelling changes and applies a new baseline',async()=>{
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const controls=new Map();
+ const $=id=>{if(!controls.has(id))controls.set(id,{});return controls.get(id);};
+ const song={chords:{'0:1':'C'}};
+ const context={song,$,chordSpelling:'sharps',commit:()=>true,setChordSpelling:()=>{},
+  transposeChord:(value,step)=>step===0?value:value==='C'?'C#':'C',
+  selected:null,closeSuggestions:()=>{},changed:()=>{},render:()=>{},refreshPreview:()=>{},status:()=>{},dirty:false};
+ const code=source.slice(source.indexOf('function syncTranspose(){'),source.indexOf('function canLeave(){'));
+ runInNewContext(code+'\ntransposeSong(1);',context);
+ assert.equal(song.transposeOffset,1);assert.equal($('transpose-offset').textContent,'+1');
+ runInNewContext('transposeSong(0,"flats");',context);assert.equal(song.transposeOffset,1);
+ runInNewContext('transposeSong(-1);',context);assert.equal(song.transposeOffset,0);assert.equal($('transpose-offset').hidden,true);
+ runInNewContext('transposeSong(-1);',context);assert.equal(song.transposeOffset,-1);
+ const chords={...song.chords};$('transpose-apply').onclick();
+ assert.equal(song.transposeOffset,0);assert.deepEqual(song.chords,chords);assert.equal($('transpose-apply').hidden,true);
+});
