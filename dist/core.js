@@ -275,3 +275,24 @@ export function transposeChord(chord, steps, spelling = 'sharps') {
   };
   return shift(match[1], match[2]) + (match[3] || '') + match[4] + (match[5] ? '/' + shift(match[5], match[6]) : '');
 }
+
+// Balance rendered rows without separating a chord track from its lyric.
+export function twoColumnTxt(song, gap = 1) {
+  const blocks = song.text.split('\n').map((line,row) => {
+    if (!line) return [''];
+    const result = layout(line,row,song.chords);
+    return result.track.trimEnd() ? [result.track.trimEnd(),result.text] : [result.text];
+  });
+  const total = blocks.reduce((sum,block)=>sum+block.length,0);
+  let split=0,height=0;
+  while(split<blocks.length && Math.abs(total-2*(height+blocks[split].length))<=Math.abs(total-2*height))height+=blocks[split++].length;
+  const left=blocks.slice(0,split).flat(),right=blocks.slice(split).flat();
+  const width=blocks.reduce((max,block)=>block.reduce((width,line)=>Math.max(width,Array.from(line).length),max),0);
+  const spaces=' '.repeat(Math.max(1,Math.floor(gap)||1));
+  const rows=Array.from({length:Math.max(left.length,right.length)},(_,i)=>{
+    const line=left[i]||'';
+    return line+' '.repeat(width-Array.from(line).length)+spaces+'|'+spaces+(right[i]||'');
+  });
+  const author=(song.author||'').trim(),notes=song.notes||'';
+  return song.title+(author?'\n'+author:'')+'\n\n'+rows.join('\n')+(notes.trim()?'\n\n'+notes:'')+'\n';
+}

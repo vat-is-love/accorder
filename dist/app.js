@@ -1,4 +1,4 @@
-import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine} from './core.js';
+import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine,twoColumnTxt} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
 import {parseAmdmHtml} from './amdm.js';
@@ -10,28 +10,32 @@ $('storage-note').textContent=browserMode?'Песни хранятся в это
 let song=null, selected=null, dirty=false, matches=[], choice=-1, closed=false, activeTab='text', libraryBusy=false, chordSpelling='sharps';
 const status=message=>{$('status').textContent=message;};
 document.addEventListener('click',event=>{
-  for(const menu of $('library').querySelectorAll('.song-menu[open]'))if(!menu.contains(event.target))menu.open=false;
+  for(const menu of document.querySelectorAll('.song-menu[open]'))if(!menu.contains(event.target))menu.open=false;
 });
 function changed(){dirty=true;status('Есть несохранённые изменения');}
 async function library(){
-  const list=await storage.list(); $('count').textContent=list.length; $('library').replaceChildren();
-  if(!list.length){const p=document.createElement('p');p.className='empty-library';p.textContent='Нет сохранённых песен';$('library').append(p);}
-  for(const item of list){
-    const button=document.createElement('button');button.textContent=item.title;
-    const small=document.createElement('small');small.textContent=new Date(item.updatedAt).toLocaleDateString('ru-RU');button.append(small);
-    button.classList.toggle('active',song?.id===item.id);
-    button.onclick=async()=>{if(!canLeave())return;try{show(await storage.get(item.id));await library();}catch(e){status(e.message);}};
-    const row=document.createElement('div');row.className='library-row';
-    const menu=document.createElement('details');menu.className='song-menu';
-    const toggle=document.createElement('summary');toggle.textContent='⋯';toggle.setAttribute('aria-label','Действия: '+item.title);
-    const actions=document.createElement('div');actions.className='song-actions';
-    for(const [label,action] of [['Сделать копию',()=>copySong(item)],['Удалить',()=>deleteSong(item)]]){
-      const control=document.createElement('button');control.textContent=label;control.onclick=()=>{menu.open=false;action();};actions.append(control);
+  const list=await storage.list(); $('count').textContent=list.length;
+  for(const container of [$('library'),$('home-library')]){
+    container.replaceChildren();
+    if(!list.length){const p=document.createElement('p');p.className='empty-library';p.textContent='Нет сохранённых песен';container.append(p);}
+    for(const item of list){
+      const button=document.createElement('button');button.textContent=item.title;
+      const small=document.createElement('small');small.textContent=new Date(item.updatedAt).toLocaleDateString('ru-RU');button.append(small);
+      button.classList.toggle('active',song?.id===item.id);
+      button.onclick=async()=>{if(!canLeave())return;try{show(await storage.get(item.id));await library();}catch(e){status(e.message);}};
+      const row=document.createElement('div');row.className='library-row';
+      const menu=document.createElement('details');menu.className='song-menu';
+      const toggle=document.createElement('summary');toggle.textContent='⋯';toggle.setAttribute('aria-label','Действия: '+item.title);
+      const actions=document.createElement('div');actions.className='song-actions';
+      for(const [label,action] of [['Сделать копию',()=>copySong(item)],['Удалить',()=>deleteSong(item)]]){
+        const control=document.createElement('button');control.textContent=label;control.onclick=()=>{menu.open=false;action();};actions.append(control);
+      }
+      menu.append(toggle,actions);menu.ontoggle=()=>{if(menu.open)for(const other of container.querySelectorAll('details'))if(other!==menu)other.open=false;};
+      row.append(button,menu);container.append(row);
     }
-    menu.append(toggle,actions);menu.ontoggle=()=>{if(menu.open)for(const other of $('library').querySelectorAll('details'))if(other!==menu)other.open=false;};
-    row.append(button,menu);$('library').append(row);
   }
 }
+
 async function copySong(item){
   if(libraryBusy||$('save').disabled)return;
   libraryBusy=true;
@@ -80,7 +84,7 @@ function setTab(name){
   }
   syncSourceState();
   $('export').disabled=name!=='preview';
-  if(name==='preview')$('preview').textContent=exportTxt({...song,title:song.title||'Без названия'});
+  if(name==='preview')refreshPreview();
 }
 function switchTab(name){
   if(!commit())return;
@@ -97,7 +101,38 @@ for(const name of tabs){
     event.preventDefault();switchTab(enabled[next]);$('tab-'+activeTab).focus();
   };
 }
-function refreshPreview(){if(activeTab==='preview')$('preview').textContent=exportTxt({...song,title:song.title||'Без названия'});}
+let previewColumns=false,previewGap=1;
+function refreshPreview(){
+  if(activeTab!=='preview'||!song)return;
+  const value={...song,title:song.title||'Без названия'};
+  $('preview').textContent=previewColumns?twoColumnTxt(value,previewGap):exportTxt(value);
+}
+$('preview-columns').onclick=()=>{previewColumns=!previewColumns;$('preview-columns').setAttribute('aria-pressed',String(previewColumns));refreshPreview();};
+for(const [id,step] of [['gap-minus',-1],['gap-plus',1]])$(id).onclick=()=>{
+  previewGap=Math.max(1,previewGap+step);$('gap-value').textContent=previewGap;$('gap-minus').disabled=previewGap===1;refreshPreview();
+};
+$('home').onclick=event=>{
+  event.preventDefault();if(!commit())return;
+  $('editor').hidden=true;$('welcome').hidden=false;
+  $('chord-editor').hidden=true;closeSuggestions();
+  library().catch(e=>status(e.message));
+};
+const resizeHandle=$('sidebar-resize'),sidebar=resizeHandle.parentElement;
+function resizeSidebar(width){
+  const max=Math.min(600,Math.max(180,window.innerWidth-280));
+  const value=Math.round(Math.max(180,Math.min(max,width)));
+  sidebar.style.width=value+'px';resizeHandle.setAttribute('aria-valuenow',String(value));resizeHandle.setAttribute('aria-valuemax',String(max));
+}
+resizeHandle.onpointerdown=event=>{
+  if(event.button!==0)return;
+  event.preventDefault();resizeHandle.setPointerCapture(event.pointerId);
+};
+resizeHandle.onpointermove=event=>{if(resizeHandle.hasPointerCapture(event.pointerId))resizeSidebar(event.clientX-sidebar.getBoundingClientRect().left);};
+resizeHandle.onpointerup=event=>{if(resizeHandle.hasPointerCapture(event.pointerId))resizeHandle.releasePointerCapture(event.pointerId);};
+resizeHandle.onkeydown=event=>{
+  if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
+  event.preventDefault();resizeSidebar(sidebar.getBoundingClientRect().width+(event.key==='ArrowRight'?10:-10));
+};
 function setChordSpelling(spelling){
   chordSpelling=spelling;
   for(const value of ['sharps','flats'])$('spelling-'+value).setAttribute('aria-pressed',String(value===spelling));

@@ -147,3 +147,18 @@ test('trailing chords add a new slot and keep two spaces after lyrics and chords
  assert.equal(layout('Мама',0,remaining).track,'      Am  F');
  assert.deepEqual(importChordText('      Am  G7  F\nМама').chords,chords);
 });
+
+test('two-column preview balances rows, retains chord pairs and aligns separator', async()=>{
+  const {twoColumnTxt}=await import('../dist/core.js');
+  const song={title:'Песня',author:'Автор',text:'Мама\nДома\nРама\nЛама',chords:{'0:1':'Am'},notes:'Примечание'};
+  const result=twoColumnTxt(song,2);
+  const rows=result.split('\n').filter(line=>line.includes('|'));
+  assert.equal(rows.length,3);
+  assert.ok(rows[0].includes('Am'));
+  assert.ok(rows[1].includes('Мама'));
+  assert.ok(rows.every(line=>line.indexOf('|')===rows[0].indexOf('|')));
+  assert.ok(rows.every(line=>line.includes('  |  ')));
+  assert.ok(result.startsWith('Песня\nАвтор\n\n'));
+  assert.ok(result.endsWith('\n\nПримечание\n'));
+  assert.ok(twoColumnTxt(song,0).includes(' | '));
+});
