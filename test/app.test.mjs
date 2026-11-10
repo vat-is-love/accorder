@@ -42,3 +42,19 @@ test('transpose offset accumulates, survives spelling changes and applies a new 
  const chords={...song.chords};$('transpose-apply').onclick();
  assert.equal(song.transposeOffset,0);assert.deepEqual(song.chords,chords);assert.equal($('transpose-apply').hidden,true);
 });
+
+test('empty chord input lists song chords by frequency; typed input uses dictionary',async()=>{
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const start=source.indexOf('function suggestions(){');
+ const end=source.indexOf('\nfunction drawSuggestions()',start);
+ const input={value:''};
+ const context={song:{chords:{'0:1':'G','0:3':'Am','1:1':'G','1:3':'F','2:1':'Am'}},
+  selected:{key:'3:1'},closed:false,matches:[],dictionary:['Am','Am7','G'],
+  $:()=>input,closeSuggestions(){context.matches=[];},drawSuggestions(){}};
+ runInNewContext(source.slice(start,end)+'\nsuggestions();',context);
+ assert.deepEqual(Array.from(context.matches),['Am','G','F']);
+ input.value='a';runInNewContext('suggestions();',context);
+ assert.deepEqual(Array.from(context.matches),['Am','Am7']);
+ input.value='';context.song.chords={};runInNewContext('suggestions();',context);
+ assert.equal(context.matches.length,0);
+});

@@ -277,7 +277,7 @@ export function transposeChord(chord, steps, spelling = 'sharps') {
 }
 
 // Balance rendered rows without separating a chord track from its lyric.
-export function twoColumnTxt(song, gap = 1) {
+export function twoColumnTxt(song, gap = 1, separator = false) {
   const blocks = song.text.split('\n').map((line,row) => {
     if (!line) return [''];
     const result = layout(line,row,song.chords);
@@ -291,7 +291,7 @@ export function twoColumnTxt(song, gap = 1) {
   const spaces=' '.repeat(Math.max(1,Math.floor(gap)||1));
   const rows=Array.from({length:Math.max(left.length,right.length)},(_,i)=>{
     const line=left[i]||'';
-    return line+' '.repeat(width-Array.from(line).length)+spaces+'|'+spaces+(right[i]||'');
+    return line+' '.repeat(width-Array.from(line).length)+spaces+(separator?'|':'')+spaces+(right[i]||'');
   });
   const author=(song.author||'').trim(),notes=song.notes||'';
   return song.title+(author?'\n'+author:'')+'\n\n'+rows.join('\n')+(notes.trim()?'\n\n'+notes:'')+'\n';

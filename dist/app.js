@@ -101,12 +101,13 @@ for(const name of tabs){
     event.preventDefault();switchTab(enabled[next]);$('tab-'+activeTab).focus();
   };
 }
-let previewColumns=false,previewGap=1;
+let previewColumns=false,previewGap=1,previewSeparator=false;
 function refreshPreview(){
   if(activeTab!=='preview'||!song)return;
   const value={...song,title:song.title||'Без названия'};
-  $('preview').textContent=previewColumns?twoColumnTxt(value,previewGap):exportTxt(value);
+  $('preview').textContent=previewColumns?twoColumnTxt(value,previewGap,previewSeparator):exportTxt(value);
 }
+$('preview-separator').onclick=()=>{previewSeparator=!previewSeparator;$('preview-separator').setAttribute('aria-pressed',String(previewSeparator));refreshPreview();};
 $('preview-columns').onclick=()=>{previewColumns=!previewColumns;$('preview-columns').setAttribute('aria-pressed',String(previewColumns));refreshPreview();};
 for(const [id,step] of [['gap-minus',-1],['gap-plus',1]])$(id).onclick=()=>{
   previewGap=Math.max(1,previewGap+step);$('gap-value').textContent=previewGap;$('gap-minus').disabled=previewGap===1;refreshPreview();
@@ -309,8 +310,8 @@ function select(pos){
     const slot=$('score').querySelector(`[data-position="${previous.key}"]`);
     if(slot){slot.style.visibility='';slot.classList.remove('selected');}
   }
-  closed=true;closeSuggestions();placeEditor();
-  $('chord').focus({preventScroll:true});$('chord').select();revealPosition();positionSuggestions();
+  closed=false;closeSuggestions();placeEditor();
+  $('chord').focus({preventScroll:true});$('chord').select();revealPosition();suggestions();
 }
 function finishEditing(){
   if(!commit())return;
@@ -329,8 +330,16 @@ function commit(){
 function closeSuggestions(){matches=[];choice=-1;$('suggestions').hidden=true;$('chord').setAttribute('aria-expanded','false');$('chord').removeAttribute('aria-activedescendant');positionSuggestions();}
 function suggestions(){
   closeSuggestions();const value=$('chord').value;
-  if(!value||closed)return;
-  matches=dictionary.filter(c=>c.toLowerCase().startsWith(value.toLowerCase())).slice(0,10);
+  if(closed)return;
+  if(value)matches=dictionary.filter(c=>c.toLowerCase().startsWith(value.toLowerCase())).slice(0,10);
+  else{
+    const counts=new Map();
+    for(const [key,chord] of Object.entries(song.chords)){
+      if(key===selected?.key)continue;
+      counts.set(chord,(counts.get(chord)||0)+1);
+    }
+    matches=[...counts.keys()].sort((a,b)=>counts.get(b)-counts.get(a)||a.localeCompare(b));
+  }
   if(matches.length)drawSuggestions();
 }
 function drawSuggestions(){
