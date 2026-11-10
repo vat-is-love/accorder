@@ -1,4 +1,4 @@
-import {positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine,twoColumnTxt} from './core.js';
+import {copyChordRows,planChordPaste,positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine,twoColumnTxt} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
 import {parseAmdmHtml} from './amdm.js';
@@ -165,13 +165,37 @@ for(const [id,step] of [['transpose-down',-1],['transpose-up',1]])$(id).onclick=
 for(const spelling of ['sharps','flats'])$('spelling-'+spelling).onclick=()=>transposeSong(0,spelling);
 function canLeave(){if(!commit())return false;return !dirty||confirm('Есть несохранённые изменения. Перейти без сохранения?');}
 function show(value){
-  song=value;selected=null;dirty=false;syncTranspose();
+  song=value;selected=null;dirty=false;syncTranspose();resetRowSelection();
   setChordSpelling(Object.values(song.chords).some(chord=>/^[A-H][b♭]|\/[A-H][b♭]$/u.test(chord))?'flats':'sharps');$('welcome').hidden=true;$('editor').hidden=false;
   $('title').value=song.title;$('author').value=song.author||'';$('notes').value=song.notes||'';$('source').value=song.text;setTab(song.text?'chords':'text');
   $('chord-editor').hidden=true;closeSuggestions();render();status(song.id?'Песня открыта':'Новая песня · ещё не сохранена');
 }
 function fresh(){if(canLeave()){show({title:'',author:'',text:'',notes:'',chords:{}});$('title').focus();library().catch(e=>status(e.message));}}
 $('new').onclick=fresh;$('first').onclick=fresh;
+let rowStart=null,rowEnd=null,copiedRows=null;
+function resetRowSelection(){rowStart=null;rowEnd=null;copiedRows=null;syncRowTools();}
+function syncRowTools(){
+  $('copy-chords').disabled=rowStart===null;
+  $('paste-chords').disabled=rowStart===null||!copiedRows;
+  $('row-selection').textContent=rowStart===null?'':`Строки ${Math.min(rowStart,rowEnd)+1}–${Math.max(rowStart,rowEnd)+1}`;
+  for(const row of $('score').querySelectorAll('[data-row]'))row.classList.toggle('copy-selected',rowStart!==null&&Number(row.dataset.row)>=Math.min(rowStart,rowEnd)&&Number(row.dataset.row)<=Math.max(rowStart,rowEnd));
+}
+$('copy-chords').onclick=()=>{
+  if(!commit())return;
+  copiedRows=copyChordRows(song.text,song.chords,Math.min(rowStart,rowEnd),Math.max(rowStart,rowEnd));
+  syncRowTools();status(`Скопировано строк: ${copiedRows.length}. Выберите начало вставки.`);
+};
+$('paste-chords').onclick=()=>{
+  if(!commit())return;
+  const plan=planChordPaste(song.text,song.chords,copiedRows,Math.min(rowStart,rowEnd));
+  const count=Object.keys(plan.additions).length;
+  if(!count){status('Нет аккордов для вставки.'+(plan.issues.length?' '+plan.issues.join(' '):''));return;}
+  if((plan.issues.length||plan.replacements)&&!confirm([...plan.issues,plan.replacements?`Заменить аккордов: ${plan.replacements}.`:'',`Вставить доступных аккордов: ${count}?`].filter(Boolean).join('\n')))return;
+  const modified=Object.entries(plan.additions).some(([key,value])=>song.chords[key]!==value);
+  Object.assign(song.chords,plan.additions);
+  selected=null;$('chord-editor').hidden=true;closeSuggestions();
+  if(modified)changed();render();refreshPreview();status(`Вставлено аккордов: ${count}${dirty?' · есть несохранённые изменения':''}`);
+};
 function render(){
   // Keep the one real input alive when rebuilding the score.
   $('panel-chords').append($('chord-editor'));
@@ -180,6 +204,14 @@ function render(){
   const all=positions(song.text,song.chords);
   song.text.split('\n').forEach((line,row)=>{
     const wrapper=document.createElement('div');wrapper.className=line?'song-line':'blank';wrapper.dataset.row=row;
+    const pick=document.createElement('button');pick.className='row-pick';pick.textContent=row+1;
+    pick.setAttribute('aria-label',`Выбрать строку ${row+1}`);
+    pick.onclick=event=>{
+      if(!commit())return;
+      if(event.shiftKey&&rowStart!==null)rowEnd=row;else rowStart=rowEnd=row;
+      syncRowTools();
+    };
+    wrapper.append(pick);
     if(isTextOnlyLine(line))wrapper.classList.add('text-only-line');
     if(line){
       const result=layout(line,row,song.chords,2);wrapper.style.width=`${result.width}ch`;
@@ -190,7 +222,7 @@ function render(){
     }
     $('score').append(wrapper);
   });
-  renderNotes();placeEditor();
+  renderNotes();placeEditor();syncRowTools();
 }
 function slotButton(pos,line,result){
   const button=document.createElement('button');const chord=song.chords[pos.key];
@@ -349,13 +381,13 @@ function applyText(){
   if($('source').value===song.text)return true;
   const text=$('source').value;
   song.chords=remapChords(song.text,text,song.chords);
-  song.text=text;selected=null;$('chord-editor').hidden=true;changed();render();syncSourceState();return true;
+  song.text=text;resetRowSelection();selected=null;$('chord-editor').hidden=true;changed();render();syncSourceState();return true;
 }
 $('apply').onclick=()=>{if(commit())applyText();};
 function applyImported(result,{metadata=false}={}){
   if(metadata){song.transposeOffset=0;syncTranspose();}
   song.chords=metadata?result.chords:{...remapChords(song.text,result.text,song.chords),...result.chords};
-  song.text=result.text;$('source').value=result.text;
+  song.text=result.text;resetRowSelection();$('source').value=result.text;
   if(metadata){song.title=result.title;song.author=result.author;$('title').value=result.title;$('author').value=result.author;}
   selected=null;$('chord-editor').hidden=true;closeSuggestions();
   setChordSpelling(Object.values(song.chords).some(chord=>/^[A-H][b♭]|\/[A-H][b♭]$/u.test(chord))?'flats':'sharps');

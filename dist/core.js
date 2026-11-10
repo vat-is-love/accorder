@@ -296,3 +296,36 @@ export function twoColumnTxt(song, gap = 1) {
   const author=(song.author||'').trim(),notes=song.notes||'';
   return song.title+(author?'\n'+author:'')+'\n\n'+rows.join('\n')+(notes.trim()?'\n\n'+notes:'')+'\n';
 }
+
+// Copy anchors by vowel ordinal, preserving line offsets and edge positions.
+export function copyChordRows(text, chords, start, end) {
+  const lines=text.split('\n');
+  if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<start||end>=lines.length) throw new Error('Выберите строки.');
+  return lines.slice(start,end+1).map((line,offset)=>{
+    const chars=Array.from(line), anchors=chars.flatMap((c,i)=>vowels.test(c)?[i]:[]);
+    return Object.entries(chords).filter(([key])=>Number(key.split(':')[0])===start+offset).map(([key,value])=>{
+      const index=Number(key.split(':')[1]);
+      return {value,edge:index===-1?'before':index>=chars.length?'after':null,position:index>=chars.length?index-chars.length:anchors.indexOf(index)};
+    });
+  });
+}
+export function planChordPaste(text, chords, copied, start) {
+  const lines=text.split('\n'), additions={}, issues=[];
+  let replacements=0;
+  copied.forEach((entries,offset)=>{
+    const row=start+offset,line=lines[row];
+    if(line===undefined||!line.length||isTextOnlyLine(line)){
+      if(entries.length)issues.push(`Строка ${row+1}: ${line===undefined?'за концом текста':'нет позиций для аккордов'} (${entries.length}).`);
+      return;
+    }
+    const chars=Array.from(line),anchors=chars.flatMap((c,i)=>vowels.test(c)?[i]:[]);
+    for(const entry of entries){
+      const index=entry.edge==='before'?-1:entry.edge==='after'?chars.length+entry.position:anchors[entry.position];
+      if(index===undefined){issues.push(`Строка ${row+1}: нет гласной №${entry.position+1} для ${entry.value}.`);continue;}
+      const key=`${row}:${index}`;
+      additions[key]=entry.value;
+      if(chords[key]&&chords[key]!==entry.value)replacements++;
+    }
+  });
+  return {additions,issues,replacements};
+}
