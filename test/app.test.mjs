@@ -33,7 +33,7 @@ test('transpose offset accumulates, survives spelling changes and applies a new 
  const context={song,$,chordSpelling:'sharps',commit:()=>true,setChordSpelling:()=>{},
   transposeChord:(value,step)=>step===0?value:value==='C'?'C#':'C',
   selected:null,closeSuggestions:()=>{},changed:()=>{},render:()=>{},refreshPreview:()=>{},status:()=>{},dirty:false};
- const code=source.slice(source.indexOf('function syncTranspose(){'),source.indexOf('function canLeave(){'));
+ const code=source.slice(source.indexOf('function syncTranspose(){'),source.indexOf('async function canLeave(){'));
  runInNewContext(code+'\ntransposeSong(1);',context);
  assert.equal(song.transposeOffset,1);assert.equal($('transpose-offset').textContent,'+1');
  runInNewContext('transposeSong(0,"flats");',context);assert.equal(song.transposeOffset,1);
@@ -95,4 +95,73 @@ test('shared song opens as an unsaved preview; errors and concurrent edits keep 
  calls.length=0;context.readSongLink=async()=>{throw new Error('Повреждённая ссылка');};
  await runInNewContext('openSharedSong()',context);
  assert.deepEqual(calls,[['alert','Повреждённая ссылка']]);
+});
+
+async function autosaveEditor(){
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const controls=new Map(),timers=new Map(),writes=[],events={};let timerId=0;
+ const $=id=>{if(!controls.has(id))controls.set(id,{value:'',hidden:true});return controls.get(id);};
+ const {remapChords}=await import('../dist/core.js');
+ const context={$,song:{title:'Песня',text:'Мама',chords:{'0:1':'Am'}},selected:null,dirty:false,libraryBusy:false,
+  setTimeout(fn,delay){assert.equal(delay,1000);timers.set(++timerId,fn);return timerId;},clearTimeout(id){timers.delete(id);},
+  document:{addEventListener(name,fn){events[name]=fn;}},
+  storage:{async save(value){writes.push(value);return {...value,id:'same-id',exportFile:'song.txt',updatedAt:'now'};}},
+  status(message){context.message=message;},library:async()=>{},refreshPreview(){},updateLine(){},
+  resetRowSelection(){},render(){},syncSourceState(){},remapChords};
+ $('source').value=context.song.text;
+ const block=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
+ runInNewContext(block('let saveTimer=', 'async function library()')+
+  block('async function canLeave(){','function show(')+
+  block('function commit(){','function closeSuggestions()')+
+  block('function applyText(){',"$('apply').onclick")+
+  block('async function saveSong(){',"$('save').onclick"),context);
+ return {context,$,writes,timers,events,run:code=>runInNewContext(code,context)};
+}
+
+test('autosave debounces input, applies text and remaps chords before writing',async()=>{
+ const e=await autosaveEditor();
+ e.$('source').value='О, Мама';
+ e.run('changed();changed();');assert.equal(e.timers.size,1);assert.equal(e.writes.length,0);
+ [...e.timers.values()][0]();await e.run('saveSong()');
+ assert.equal(e.writes.length,1);assert.equal(e.writes[0].text,'О, Мама');
+ assert.equal(e.writes[0].chords['0:4'],'Am');assert.equal(e.context.dirty,false);
+ assert.equal(e.$('save-state').textContent,'Сохранено');assert.equal(e.$('save').hidden,true);
+});
+
+test('edits and navigation during a pending write wait for the next write with the same id',async()=>{
+ const e=await autosaveEditor();let finish;
+ const save=e.context.storage.save;
+ e.context.storage.save=async value=>{if(!e.writes.length){e.writes.push(value);return new Promise(resolve=>{finish=()=>resolve({...value,id:'same-id'});});}return save(value);};
+ e.run('changed()');const pending=e.run('saveSong()');await Promise.resolve();
+ e.context.song.notes='новое';e.$('source').value='Мама дома';e.run('changed()');
+ let left=false;const navigation=e.run('canLeave()').then(result=>{left=result;});
+ await Promise.resolve();assert.equal(left,false);assert.equal(e.writes.length,1);
+ finish();await pending;await navigation;
+ assert.equal(left,true);assert.equal(e.writes.length,2);
+ assert.equal(e.writes[1].id,'same-id');assert.equal(e.writes[1].notes,'новое');assert.equal(e.writes[1].text,'Мама дома');
+ assert.equal(e.context.dirty,false);assert.equal(e.timers.size,0);
+});
+
+test('save failure blocks navigation, keeps edits and offers a working retry',async()=>{
+ const e=await autosaveEditor(),save=e.context.storage.save;
+ e.context.storage.save=async()=>{throw new Error('Нет места');};e.run('changed()');
+ assert.equal(await e.run('canLeave()'),false);assert.equal(e.context.dirty,true);
+ assert.equal(e.context.message,'Нет места');assert.equal(e.$('save').hidden,false);assert.equal(e.timers.size,0);
+ e.context.storage.save=save;assert.equal(await e.run('saveSong()'),true);
+ assert.equal(e.context.dirty,false);assert.equal(e.$('save').hidden,true);
+});
+
+test('untitled songs wait for a title and IME input waits for composition to end',async()=>{
+ const e=await autosaveEditor();e.context.song.title='';e.run('changed()');
+ assert.equal(await e.run('saveSong()'),false);assert.equal(e.writes.length,0);assert.equal(e.context.dirty,true);
+ e.context.song.title='Название';e.events.compositionstart();e.run('changed()');
+ assert.equal(e.timers.size,0);assert.equal(await e.run('saveSong()'),false);
+ e.events.compositionend();assert.equal(e.timers.size,1);await e.run('saveSong()');assert.equal(e.writes.length,1);
+});
+
+test('autosave commits active chord input and preserves invalid input for correction',async()=>{
+ const e=await autosaveEditor();e.context.selected={key:'0:1'};e.$('chord').value='G';e.run('changed()');
+ await e.run('saveSong()');assert.equal(e.writes[0].chords['0:1'],'G');
+ e.$('chord').value='G m';e.run('changed()');assert.equal(await e.run('canLeave()'),false);
+ assert.equal(e.writes.length,1);assert.equal(e.context.dirty,true);assert.equal(e.$('chord').value,'G m');
 });
