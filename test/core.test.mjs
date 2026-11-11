@@ -164,3 +164,17 @@ test('two-column preview balances rows, retains chord pairs and aligns separator
   assert.ok(result.endsWith('\n\nПримечание\n'));
   assert.ok(twoColumnTxt(song,0,true).includes(' | '));
 });
+
+
+test('preview marks only chord tracks and preserves TXT content',async()=>{
+  const {previewRows,twoColumnTxt}=await import('../dist/core.js');
+  for(const text of ['', 'Мама\n\nДома\n!Am'])for(const notes of ['', 'Am\nПримечание']){
+    const song={title:'Am',author:'G',text,notes,chords:text?{'0:1':'Cmaj7/G'}:{}};
+    const rows=previewRows(song);
+    assert.equal(rows.map(row=>row.map(part=>part.text).join('')).join('\n'),exportTxt(song));
+    assert.deepEqual(rows.flat().filter(part=>part.chord).map(part=>part.text.trim()),text?['Cmaj7/G']:[]);
+    const columns=previewRows(song,true,2,true);
+    assert.equal(columns.map(row=>row.map(part=>part.text).join('')).join('\n'),twoColumnTxt(song,2,true));
+    assert.deepEqual(columns.flat().filter(part=>part.chord).map(part=>part.text.trim()),text?['Cmaj7/G']:[]);
+  }
+});

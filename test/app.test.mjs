@@ -58,3 +58,41 @@ test('empty chord input lists song chords by frequency; typed input uses diction
  input.value='';context.song.chords={};runInNewContext('suggestions();',context);
  assert.equal(context.matches.length,0);
 });
+
+
+test('row tools restrict copy sources while allowing paste into unchorded lyrics',async()=>{
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const start=source.indexOf('function syncRowTools(){'),end=source.indexOf("\n$('copy-chords').onclick",start);
+ const controls=new Map(),$=id=>{if(!controls.has(id))controls.set(id,{});return controls.get(id);};
+ const rows=Array.from({length:5},(_,i)=>({dataset:{row:String(i)},
+  pick:{setAttribute(){}},querySelector(){return this.pick;},classList:{toggle(){}}}));
+ $('score').querySelectorAll=()=>rows;
+ const {isTextOnlyLine}=await import('../dist/core.js');
+ const context={$,song:{text:'Мама\n\nДома\n!Припев\n   ',chords:{'0:1':'Am'}},rowStart:2,rowEnd:2,copiedRows:null,isTextOnlyLine};
+ runInNewContext(source.slice(start,end)+'\nsyncRowTools();',context);
+ assert.deepEqual(rows.map(row=>row.pick.disabled),[false,true,true,true,true]);
+ assert.equal($('copy-chords').disabled,true);
+ context.rowStart=context.rowEnd=0;runInNewContext('syncRowTools();',context);
+ assert.equal($('copy-chords').disabled,false);
+ context.copiedRows=[[{value:'Am'}]];context.rowStart=context.rowEnd=2;runInNewContext('syncRowTools();',context);
+ assert.deepEqual(rows.map(row=>row.pick.disabled),[false,true,false,true,true]);
+ assert.equal($('copy-chords').disabled,true);assert.equal($('paste-chords').disabled,false);
+});
+
+test('shared song opens as an unsaved preview; errors and concurrent edits keep editor intact',async()=>{
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('async function openSharedSong(){'),source.lastIndexOf('openSharedSong();'));
+ const shared={title:'Песня',text:'Мама',chords:{'0:1':'Am'}};
+ const calls=[];
+ const context={song:null,dirty:false,location:{href:'https://example.com/#song=v1.abc'},
+  readSongLink:async()=>shared,show:value=>calls.push(['show',value]),changed:()=>calls.push(['changed']),
+  setTab:name=>calls.push(['tab',name]),status:()=>{},alert:message=>calls.push(['alert',message])};
+ await runInNewContext(code+'\nopenSharedSong()',context);
+ assert.equal(calls[0][1],shared);assert.deepEqual(calls.slice(1),[['changed'],['tab','preview']]);
+ calls.length=0;context.song={title:'Другой черновик'};
+ await runInNewContext('openSharedSong()',context);
+ assert.equal(calls.length,1);assert.equal(calls[0][0],'alert');
+ calls.length=0;context.readSongLink=async()=>{throw new Error('Повреждённая ссылка');};
+ await runInNewContext('openSharedSong()',context);
+ assert.deepEqual(calls,[['alert','Повреждённая ссылка']]);
+});

@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
-const assets = ['app.js', 'core.js', 'storage.js', 'archive.js', 'amdm.js', 'style.css'];
+const assets = ['app.js', 'core.js', 'storage.js', 'archive.js', 'amdm.js', 'share.js', 'style.css'];
 
 // Version the whole module graph together, including imports between modules.
 export async function preparePages(source, destination) {

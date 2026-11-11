@@ -1,6 +1,7 @@
-import {copyChordRows,planChordPaste,positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine,twoColumnTxt} from './core.js';
+import {copyChordRows,planChordPaste,positions,layout,exportTxt,exportFilename,dictionary,remapChords,transposeChord,importChordText,isTextOnlyLine,previewRows} from './core.js';
 import {BrowserLibrary,FileLibrary,parseImport} from './storage.js';
 import {zipTxtFiles} from './archive.js';
+import {createSongLink,readSongLink} from './share.js';
 import {parseAmdmHtml} from './amdm.js';
 const $=id=>document.getElementById(id);
 const browserMode=document.documentElement.dataset.storage!=='files';
@@ -105,7 +106,16 @@ let previewColumns=false,previewGap=1,previewSeparator=false;
 function refreshPreview(){
   if(activeTab!=='preview'||!song)return;
   const value={...song,title:song.title||'Без названия'};
-  $('preview').textContent=previewColumns?twoColumnTxt(value,previewGap,previewSeparator):exportTxt(value);
+  const preview=$('preview');preview.replaceChildren();
+  const rows=previewRows(value,previewColumns,previewGap,previewSeparator);
+  rows.forEach((parts,index)=>{
+    for(const part of parts){
+      const span=document.createElement('span');span.textContent=part.text;
+      if(part.chord)span.className='preview-chords';
+      preview.append(span);
+    }
+    if(index<rows.length-1)preview.append(document.createTextNode('\n'));
+  });
 }
 $('preview-separator').onclick=()=>{previewSeparator=!previewSeparator;$('preview-separator').setAttribute('aria-pressed',String(previewSeparator));refreshPreview();};
 $('preview-columns').onclick=()=>{previewColumns=!previewColumns;$('preview-columns').setAttribute('aria-pressed',String(previewColumns));refreshPreview();};
@@ -176,13 +186,22 @@ $('new').onclick=fresh;$('first').onclick=fresh;
 let rowStart=null,rowEnd=null,copiedRows=null;
 function resetRowSelection(){rowStart=null;rowEnd=null;copiedRows=null;syncRowTools();}
 function syncRowTools(){
-  $('copy-chords').disabled=rowStart===null;
+  const chordRows=new Set(Object.entries(song?.chords||{}).filter(([,value])=>value).map(([key])=>Number(key.split(':')[0])));
+  const inRange=row=>rowStart!==null&&row>=Math.min(rowStart,rowEnd)&&row<=Math.max(rowStart,rowEnd);
+  $('copy-chords').disabled=![...chordRows].some(inRange);
   $('paste-chords').disabled=rowStart===null||!copiedRows;
   $('row-selection').textContent=rowStart===null?'':`Строки ${Math.min(rowStart,rowEnd)+1}–${Math.max(rowStart,rowEnd)+1}`;
-  for(const row of $('score').querySelectorAll('[data-row]'))row.classList.toggle('copy-selected',rowStart!==null&&Number(row.dataset.row)>=Math.min(rowStart,rowEnd)&&Number(row.dataset.row)<=Math.max(rowStart,rowEnd));
+  for(const row of $('score').querySelectorAll('[data-row]')){
+    const index=Number(row.dataset.row),line=song.text.split('\n')[index];
+    const pick=row.querySelector('.row-pick');
+    pick.disabled=!chordRows.has(index)&&!(copiedRows&&line.trim()&&!isTextOnlyLine(line));
+    pick.setAttribute('aria-label',`${chordRows.has(index)?'Выбрать строку':'Вставить с строки'} ${index+1}`);
+    row.classList.toggle('copy-selected',inRange(index)&&(chordRows.has(index)||!!copiedRows&&!pick.disabled));
+  }
 }
 $('copy-chords').onclick=()=>{
   if(!commit())return;
+  if($('copy-chords').disabled)return;
   copiedRows=copyChordRows(song.text,song.chords,Math.min(rowStart,rowEnd),Math.max(rowStart,rowEnd));
   syncRowTools();status(`Скопировано строк: ${copiedRows.length}. Выберите начало вставки.`);
 };
@@ -209,7 +228,8 @@ function render(){
     pick.setAttribute('aria-label',`Выбрать строку ${row+1}`);
     pick.onclick=event=>{
       if(!commit())return;
-      if(event.shiftKey&&rowStart!==null)rowEnd=row;else rowStart=rowEnd=row;
+      if(pick.disabled)return;
+      if(event.shiftKey&&rowStart!==null&&Object.keys(song.chords).some(key=>key.startsWith(row+':')))rowEnd=row;else rowStart=rowEnd=row;
       syncRowTools();
     };
     wrapper.append(pick);
@@ -276,7 +296,7 @@ function updateLine(){
   }
   $('chord-editor').style.left=`${result.columns[selected.index]}ch`;
   $('chord').style.width=`${Math.max(3,Array.from($('chord').value).length+1)}ch`;
-  positionSuggestions();
+  positionSuggestions();syncRowTools();
 }
 function positionSuggestions(){
   if(!selected||$('chord-editor').hidden||$('suggestions').hidden)return;
@@ -479,3 +499,35 @@ $('import-files').onchange=async()=>{
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&song){event.preventDefault();$('save').click();}});
 library().catch(e=>status(e.message));
+
+
+$('share-song').onclick=async()=>{
+  try{
+    if(!song)throw new Error('Сначала откройте или создайте песню.');
+    if(!commit())throw new Error('Исправьте обозначение аккорда.');
+    if($('source').value!==song.text)throw new Error('Сначала примените изменения текста.');
+    $('share-song').disabled=true;
+    const link=await createSongLink(song,location.href);
+    $('share-url').value=link;$('share-status').textContent='';
+    $('share-dialog').showModal();$('share-url').focus();$('share-url').select();
+  }catch(error){alert(error.message);}finally{$('share-song').disabled=false;}
+};
+$('copy-share').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText($('share-url').value);
+    $('share-status').textContent='Ссылка скопирована';
+  }catch{
+    $('share-url').focus();$('share-url').select();
+    alert('Не удалось скопировать ссылку автоматически. Скопируйте выделенную ссылку вручную.');
+  }
+};
+async function openSharedSong(){
+  try{
+    const value=await readSongLink(location.href);
+    if(!value)return;
+    if(song||dirty)throw new Error('Редактор изменён во время открытия ссылки. Откройте ссылку в новой вкладке.');
+    show(value);changed();setTab('preview');
+    status('Песня открыта по ссылке · нажмите «Сохранить», чтобы добавить в библиотеку');
+  }catch(error){alert(error.message);}
+}
+openSharedSong();

@@ -276,25 +276,35 @@ export function transposeChord(chord, steps, spelling = 'sharps') {
   return shift(match[1], match[2]) + (match[3] || '') + match[4] + (match[5] ? '/' + shift(match[5], match[6]) : '');
 }
 
+// Typed fragments keep chord styling separate from lyrics, including in two columns.
+export function previewRows(song, columns = false, gap = 1, separator = false) {
+  const blocks = song.text.split('\n').map((line,row) => {
+    if (!line) return [{text:'',chord:false}];
+    const result = layout(line,row,song.chords),track=result.track.trimEnd();
+    return [...(track ? [{text:track,chord:true}] : []),{text:result.text,chord:false}];
+  });
+  let rows=blocks.flat().map(part=>[part]);
+  if(columns){
+    const total=blocks.reduce((sum,block)=>sum+block.length,0);
+    let split=0,height=0;
+    while(split<blocks.length && Math.abs(total-2*(height+blocks[split].length))<=Math.abs(total-2*height))height+=blocks[split++].length;
+    const left=blocks.slice(0,split).flat(),right=blocks.slice(split).flat();
+    const width=blocks.flat().reduce((max,part)=>Math.max(max,Array.from(part.text).length),0);
+    const spaces=' '.repeat(Math.max(1,Math.floor(gap)||1));
+    rows=Array.from({length:Math.max(left.length,right.length)},(_,i)=>{
+      const part=left[i]||{text:'',chord:false};
+      return [part,{text:' '.repeat(width-Array.from(part.text).length)+spaces+(separator?'|':'')+spaces,chord:false},right[i]||{text:'',chord:false}];
+    });
+  }
+  const plain=text=>[{text,chord:false}],author=(song.author||'').trim(),notes=song.notes||'';
+  if(!columns&&!song.text&&notes.trim())rows=[];
+  return [plain(song.title),...(author?[plain(author)]:[]),plain(''),...rows,
+    ...(notes.trim()?[...(columns||song.text?[plain('')]:[]),...notes.split('\n').map(plain)]:[]),plain('')];
+}
+
 // Balance rendered rows without separating a chord track from its lyric.
 export function twoColumnTxt(song, gap = 1, separator = false) {
-  const blocks = song.text.split('\n').map((line,row) => {
-    if (!line) return [''];
-    const result = layout(line,row,song.chords);
-    return result.track.trimEnd() ? [result.track.trimEnd(),result.text] : [result.text];
-  });
-  const total = blocks.reduce((sum,block)=>sum+block.length,0);
-  let split=0,height=0;
-  while(split<blocks.length && Math.abs(total-2*(height+blocks[split].length))<=Math.abs(total-2*height))height+=blocks[split++].length;
-  const left=blocks.slice(0,split).flat(),right=blocks.slice(split).flat();
-  const width=blocks.reduce((max,block)=>block.reduce((width,line)=>Math.max(width,Array.from(line).length),max),0);
-  const spaces=' '.repeat(Math.max(1,Math.floor(gap)||1));
-  const rows=Array.from({length:Math.max(left.length,right.length)},(_,i)=>{
-    const line=left[i]||'';
-    return line+' '.repeat(width-Array.from(line).length)+spaces+(separator?'|':'')+spaces+(right[i]||'');
-  });
-  const author=(song.author||'').trim(),notes=song.notes||'';
-  return song.title+(author?'\n'+author:'')+'\n\n'+rows.join('\n')+(notes.trim()?'\n\n'+notes:'')+'\n';
+  return previewRows(song,true,gap,separator).map(row=>row.map(part=>part.text).join('')).join('\n');
 }
 
 // Copy anchors by vowel ordinal, preserving line offsets and edge positions.

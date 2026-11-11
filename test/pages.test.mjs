@@ -14,7 +14,7 @@ test('publication includes only site files and resolves the entire versioned mod
     const original = await readFile(path.join(source, 'app.js'), 'utf8');
     await preparePages(source, output);
     const names = await readdir(output);
-    assert.equal(names.length, 7);
+    assert.equal(names.length, 8);
     assert.ok(names.includes('index.html'));
     for (const name of names) {
       const content = await readFile(path.join(output, name), 'utf8');
