@@ -229,23 +229,34 @@ function clearRowSelection(){rowStart=null;rowEnd=null;syncRowTools();}
 function resetRowSelection(){copiedRows=null;clearRowSelection();}
 function syncRowTools(){
   const chordRows=new Set(Object.entries(song?.chords||{}).filter(([,value])=>value).map(([key])=>Number(key.split(':')[0])));
-  const inRange=row=>rowStart!==null&&row>=Math.min(rowStart,rowEnd)&&row<=Math.max(rowStart,rowEnd);
-  $('copy-chords').disabled=![...chordRows].some(inRange);
-  $('paste-chords').disabled=rowStart===null||!copiedRows;
-  $('row-selection').textContent=rowStart===null?'':`Строки ${Math.min(rowStart,rowEnd)+1}–${Math.max(rowStart,rowEnd)+1}`;
+  const lines=song?.text.split('\n')||[];
+  const start=Math.min(rowStart,rowEnd),end=Math.max(rowStart,rowEnd),numbers=[];
+  let number=0,canPaste=false;
   for(const row of $('score').querySelectorAll('[data-row]')){
-    const index=Number(row.dataset.row),line=song.text.split('\n')[index];
+    const index=Number(row.dataset.row),line=lines[index]||'';
     const pick=row.querySelector('.row-pick');
-    pick.disabled=!chordRows.has(index)&&!(copiedRows&&line.trim()&&!isTextOnlyLine(line));
-    pick.setAttribute('aria-label',`${chordRows.has(index)?'Выбрать строку':'Вставить с строки'} ${index+1}`);
-    row.classList.toggle('copy-selected',inRange(index)&&(chordRows.has(index)||!!copiedRows&&!pick.disabled));
+    if(!pick)continue;
+    const textOnly=isTextOnlyLine(line);
+    pick.hidden=!chordRows.has(index)&&!(textOnly?line.slice(1):line).trim();
+    const selected=!pick.hidden&&rowStart!==null&&index>=start&&index<=end;
+    row.classList.toggle('copy-selected',selected);
+    if(pick.hidden)continue;
+    pick.textContent=++number;
+    pick.setAttribute('aria-label',`Выбрать строку ${number}`);
+    if(selected)numbers.push(number);
+    if(selected&&index===start&&!textOnly)canPaste=true;
   }
+  $('copy-chords').disabled=!numbers.length;
+  $('paste-chords').disabled=!copiedRows||!canPaste;
+  $('row-selection').textContent=numbers.length?`Строки ${numbers[0]}–${numbers.at(-1)}`:'';
+  return numbers.length;
 }
 $('copy-chords').onclick=()=>{
   if(!commit())return;
   if($('copy-chords').disabled)return;
   copiedRows=copyChordRows(song.text,song.chords,Math.min(rowStart,rowEnd),Math.max(rowStart,rowEnd));
-  syncRowTools();status(`Скопировано строк: ${copiedRows.length}. Выберите начало вставки.`);
+  const count=syncRowTools();
+  status(`Скопировано строк: ${count}.`+(copiedRows.some(row=>row.length)?' Выберите начало вставки.':''));
 };
 $('paste-chords').onclick=()=>{
   if(!commit())return;
@@ -283,17 +294,15 @@ function render(){
   const all=positions(song.text,song.chords);
   song.text.split('\n').forEach((line,row)=>{
     const wrapper=document.createElement('div');wrapper.className=line?'song-line':'blank';wrapper.dataset.row=row;
-    const pick=document.createElement('button');pick.className='row-pick';pick.textContent=row+1;
-    pick.setAttribute('aria-label',`Выбрать строку ${row+1}`);
-    pick.onclick=event=>{
-      if(!commit())return;
-      if(pick.disabled)return;
-      if(event.shiftKey&&rowStart!==null&&Object.keys(song.chords).some(key=>key.startsWith(row+':')))rowEnd=row;else rowStart=rowEnd=row;
-      syncRowTools();
-    };
-    wrapper.append(pick);
     if(isTextOnlyLine(line))wrapper.classList.add('text-only-line');
     if(line){
+      const pick=document.createElement('button');pick.className='row-pick';
+      pick.onclick=event=>{
+        if(!commit()||pick.hidden)return;
+        if(event.shiftKey&&rowStart!==null)rowEnd=row;else rowStart=rowEnd=row;
+        syncRowTools();
+      };
+      wrapper.append(pick);
       const result=layout(line,row,song.chords,2);wrapper.style.width=`${result.width}ch`;
       const lyric=document.createElement('div');lyric.className='lyric';lyric.textContent=result.text;wrapper.append(lyric);
       for(const pos of all.filter(p=>p.row===row)){

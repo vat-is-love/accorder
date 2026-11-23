@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
-import {positions,layout} from '../dist/core.js';
+import {copyChordRows,planChordPaste,positions,layout,isTextOnlyLine} from '../dist/core.js';
 
 test('slot buttons render labels and select positions on each song row',async()=>{
  const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
@@ -60,23 +60,36 @@ test('empty chord input lists song chords by frequency; typed input uses diction
 });
 
 
-test('row tools restrict copy sources while allowing paste into unchorded lyrics',async()=>{
+test('row tools select unchorded lyrics and skip blanks when numbering the score',async()=>{
  const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
- const start=source.indexOf('function syncRowTools(){'),end=source.indexOf("\n$('copy-chords').onclick",start);
- const controls=new Map(),$=id=>{if(!controls.has(id))controls.set(id,{});return controls.get(id);};
- const rows=Array.from({length:5},(_,i)=>({dataset:{row:String(i)},
-  pick:{setAttribute(){}},querySelector(){return this.pick;},classList:{toggle(){}}}));
- $('score').querySelectorAll=()=>rows;
- const {isTextOnlyLine}=await import('../dist/core.js');
- const context={$,song:{text:'Мама\n\nДома\n!Припев\n   ',chords:{'0:1':'Am'}},rowStart:2,rowEnd:2,copiedRows:null,isTextOnlyLine};
- runInNewContext(source.slice(start,end)+'\nsyncRowTools();',context);
- assert.deepEqual(rows.map(row=>row.pick.disabled),[false,true,true,true,true]);
+ const start=source.indexOf('let rowStart='),end=source.indexOf('\nfunction renderNotes()',start);
+ const element=()=>({dataset:{},style:{},children:[],setAttribute(){},addEventListener(){},
+  append(child){this.children.push(child);},replaceChildren(){this.children=[];},
+  classList:{add(){},toggle(){}},
+  querySelector(selector){return this.children.find(child=>'.'+child.className===selector);},
+  querySelectorAll(){return this.children;}});
+ const controls=new Map(),$=id=>{if(!controls.has(id))controls.set(id,element());return controls.get(id);};
+ const song={text:'Мама\nДома\n\nЛето\nЯ иду\nУ реки\n\nДо утра\n!Припев\n!\n   ',chords:{'0:1':'Am','3:1':'G'}};
+ const context={$,song,selected:null,dirty:false,isTextOnlyLine,positions,layout,copyChordRows,planChordPaste,
+  commit:()=>true,status(){},renderNotes(){},placeEditor(){},closeSuggestions(){},changed(){},refreshPreview(){},
+  document:{createElement:element,addEventListener(){}}};
+ runInNewContext(source.slice(start,end)+'\nrender();',context);
+ const pick=row=>$('score').children[row].querySelector('.row-pick');
+ const choose=(row,shiftKey=false)=>pick(row).onclick({shiftKey});
+ assert.deepEqual($('score').children.map((_,row)=>pick(row)?.hidden?undefined:pick(row)?.textContent),
+  [1,2,undefined,3,4,5,undefined,6,7,undefined,undefined]);
  assert.equal($('copy-chords').disabled,true);
- context.rowStart=context.rowEnd=0;runInNewContext('syncRowTools();',context);
+ choose(8);
  assert.equal($('copy-chords').disabled,false);
- context.copiedRows=[[{value:'Am'}]];context.rowStart=context.rowEnd=2;runInNewContext('syncRowTools();',context);
- assert.deepEqual(rows.map(row=>row.pick.disabled),[false,true,false,true,true]);
- assert.equal($('copy-chords').disabled,true);assert.equal($('paste-chords').disabled,false);
+ choose(3);
+ choose(1,true);
+ assert.equal($('row-selection').textContent,'Строки 2–3');
+ choose(0,true);
+ $('copy-chords').onclick();
+ choose(4);
+ assert.equal($('paste-chords').disabled,false);
+ $('paste-chords').onclick();
+ assert.deepEqual(song.chords,{'0:1':'Am','3:1':'G','4:0':'Am','7:1':'G'});
 });
 
 test('score shortcuts use selected rows and leave native clipboard actions available',async()=>{
