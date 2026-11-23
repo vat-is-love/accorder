@@ -1,4 +1,11 @@
-export const vowels = /[аеёиоуыэюяaeiouy]/iu;
+function isVowel(char) {
+  return /^[аеёиоуыэюяєіїѐѝ]$/iu.test(char) || /^[aeiouy]\p{M}*$/iu.test(char.normalize('NFD'));
+}
+
+// Saved chord indexes count code points, while combining marks take no column.
+const isCombiningMark = char => /\p{M}/u.test(char);
+const columnWidth = text => Array.from(text).filter(char => !isCombiningMark(char)).length;
+
 export const isTextOnlyLine = line => line.startsWith('!');
 function trailingPositions(line, row, chords) {
   const end = Array.from(line).length, indices = new Set([end]);
@@ -14,37 +21,46 @@ export function positions(text, chords = {}, firstRow = 0) {
   return text.split('\n').flatMap((line, offset) => {
     if (!line.length || isTextOnlyLine(line)) return [];
     const row = firstRow + offset;
-    return [-1, ...Array.from(line).flatMap((c, i) => vowels.test(c) ? [i] : []), ...trailingPositions(line, row, chords)]
+    return [-1, ...Array.from(line).flatMap((c, i) => isVowel(c) ? [i] : []), ...trailingPositions(line, row, chords)]
       .map(index => ({row,index,key:`${row}:${index}`}));
   });
 }
 export function layout(line, row, chords, lyricIndent = 0) {
   if (isTextOnlyLine(line)) {
     const text = ' '.repeat(lyricIndent) + line.slice(1).replace(/^ /u, '');
-    return {text,track:'',columns:{},width:text.length+2};
+    return {text,track:'',columns:{},width:columnWidth(text)+2};
   }
   const chars = Array.from(line);
   let text = '', track = '', lastEnd = -1;
+  let lyricWidth = 0;
   const columns = {};
-  function put(index, column = text.length) {
+  function padLyric(column) {
+    text += ' '.repeat(Math.max(0, column - lyricWidth));
+    lyricWidth = Math.max(lyricWidth, column);
+  }
+  function put(index, column = lyricWidth) {
     const key = `${row}:${index}`, chord = chords[key] || '';
     if (chord && column <= lastEnd) column = lastEnd + 1;
-    if (index < chars.length) text = text.padEnd(column, ' ');
+    if (index < chars.length) padLyric(column);
     columns[index] = column;
     if (chord) {
-      track = track.padEnd(column, ' ') + chord;
-      lastEnd = column + chord.length;
+      track += ' '.repeat(column - Math.max(0, lastEnd)) + chord;
+      lastEnd = column + columnWidth(chord);
     }
   }
   put(-1);
-  if (lyricIndent > 0) text = text.padEnd(Math.max(lyricIndent, lastEnd + 1), ' ');
-  chars.forEach((c,i) => { if (vowels.test(c)) put(i); text += c; });
-  let column = Math.max(text.length + 2, lastEnd + 2);
+  if (lyricIndent > 0) padLyric(Math.max(lyricIndent, lastEnd + 1));
+  chars.forEach((char, index) => {
+    if (isVowel(char)) put(index);
+    text += char;
+    if (!isCombiningMark(char)) lyricWidth++;
+  });
+  let column = Math.max(lyricWidth + 2, lastEnd + 2);
   for (const index of trailingPositions(line, row, chords)) {
     put(index, column);
-    column += (chords[`${row}:${index}`] || '·').length + 2;
+    column += columnWidth(chords[`${row}:${index}`] || '·') + 2;
   }
-  return {text,track,columns,width:Math.max(text.length,track.length,column-2)+2};
+  return {text,track,columns,width:Math.max(lyricWidth,lastEnd,column-2)+2};
 }
 export function exportTxt(song) {
   const author = (song.author || '').trim();
@@ -65,14 +81,14 @@ export function importChordText(source) {
     let expanded = '', column = 0;
     for (const char of line) {
       const value = char === '\t' ? ' '.repeat(8 - column % 8) : char;
-      expanded += value; column += char === '\t' ? value.length : 1;
+      expanded += value; column += columnWidth(value);
     }
     return expanded.replace(/\u00a0/g, ' ');
   });
   function track(line) {
     const tokens = Array.from(line.matchAll(/\S+/gu));
     return tokens.length && tokens.every(token => token[0].length <= 40 && transposeChord(token[0], 0) !== null)
-      ? tokens.map(token => ({value:token[0], column:Array.from(line.slice(0, token.index)).length})) : null;
+      ? tokens.map(token => ({value:token[0], column:columnWidth(line.slice(0, token.index))})) : null;
   }
   const text = [], chords = {};
   let imported = 0, retained = 0;
@@ -86,17 +102,24 @@ export function importChordText(source) {
     const chars = Array.from(next), first = chars.findIndex(char => /\S/u.test(char));
     let end = chars.length;
     while (end > 0 && /\s/u.test(chars[end - 1])) end--;
-    const anchors = chars.flatMap((char,index) => vowels.test(char) ? [index] : []);
+    const anchors = [];
+    let column = 0;
+    chars.forEach((char, index) => {
+      if (isVowel(char)) anchors.push({index, column});
+      if (!isCombiningMark(char)) column++;
+    });
+    const firstColumn = columnWidth(chars.slice(0, first).join(''));
+    const endColumn = columnWidth(chars.slice(0, end).join(''));
     const used = new Set();
     for (const token of tokens) {
       let index;
-      if (token.column < first) index = -1;
-      else if (token.column >= end) {
+      if (token.column < firstColumn) index = -1;
+      else if (token.column >= endColumn) {
         index = chars.length;
         while (used.has(index)) index++;
       }
-      else index = anchors.reduce((best, candidate) => best === null || Math.abs(candidate - token.column) < Math.abs(best - token.column) ? candidate : best, null);
-      if (index === null || used.has(index)) throw new Error(`Строка ${row + 1}: аккорды не помещаются в доступные позиции. Исправьте их расположение и повторите импорт.`);
+      else index = anchors.reduce((best, candidate) => best === null || Math.abs(candidate.column - token.column) < Math.abs(best.column - token.column) ? candidate : best, null)?.index;
+      if (index === undefined || used.has(index)) throw new Error(`Строка ${row + 1}: аккорды не помещаются в доступные позиции. Исправьте их расположение и повторите импорт.`);
       used.add(index);
       chords[`${text.length}:${index}`] = token.value;
       imported++;
@@ -240,9 +263,9 @@ export function remapChords(oldText, newText, chords) {
       if(mapped!==(index===-1?next.first:next.last))continue;
       target=`${place.row}:${index===-1?-1:next.length+index-line.length}`;
     } else {
-      if(index<0||index>=line.length||!vowels.test(oldChars[line.start+index]))continue;
+      if(index<0||index>=line.length||!isVowel(oldChars[line.start+index]))continue;
       const mapped=charMap.get(line.start+index),place=newRows.locations[mapped];
-      if(!place||newRows.lines[place.row].textOnly||!vowels.test(newChars[mapped]))continue;
+      if(!place||newRows.lines[place.row].textOnly||!isVowel(newChars[mapped]))continue;
       target=`${place.row}:${place.index}`;
     }
     if(Object.hasOwn(result,target)){delete result[target];collisions.add(target);}
@@ -289,11 +312,11 @@ export function previewRows(song, columns = false, gap = 1, separator = false) {
     let split=0,height=0;
     while(split<blocks.length && Math.abs(total-2*(height+blocks[split].length))<=Math.abs(total-2*height))height+=blocks[split++].length;
     const left=blocks.slice(0,split).flat(),right=blocks.slice(split).flat();
-    const width=blocks.flat().reduce((max,part)=>Math.max(max,Array.from(part.text).length),0);
+    const width=blocks.flat().reduce((max,part)=>Math.max(max,columnWidth(part.text)),0);
     const spaces=' '.repeat(Math.max(1,Math.floor(gap)||1));
     rows=Array.from({length:Math.max(left.length,right.length)},(_,i)=>{
       const part=left[i]||{text:'',chord:false};
-      return [part,{text:' '.repeat(width-Array.from(part.text).length)+spaces+(separator?'|':'')+spaces,chord:false},right[i]||{text:'',chord:false}];
+      return [part,{text:' '.repeat(width-columnWidth(part.text))+spaces+(separator?'|':'')+spaces,chord:false},right[i]||{text:'',chord:false}];
     });
   }
   const plain=text=>[{text,chord:false}],author=(song.author||'').trim(),notes=song.notes||'';
@@ -312,7 +335,7 @@ export function copyChordRows(text, chords, start, end) {
   const lines=text.split('\n');
   if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<start||end>=lines.length) throw new Error('Выберите строки.');
   return lines.slice(start,end+1).map((line,offset)=>{
-    const chars=Array.from(line), anchors=chars.flatMap((c,i)=>vowels.test(c)?[i]:[]);
+    const chars=Array.from(line), anchors=chars.flatMap((c,i)=>isVowel(c)?[i]:[]);
     return Object.entries(chords).filter(([key])=>Number(key.split(':')[0])===start+offset).map(([key,value])=>{
       const index=Number(key.split(':')[1]);
       return {value,edge:index===-1?'before':index>=chars.length?'after':null,position:index>=chars.length?index-chars.length:anchors.indexOf(index)};
@@ -328,7 +351,7 @@ export function planChordPaste(text, chords, copied, start) {
       if(entries.length)issues.push(`Строка ${row+1}: ${line===undefined?'за концом текста':'нет позиций для аккордов'} (${entries.length}).`);
       return;
     }
-    const chars=Array.from(line),anchors=chars.flatMap((c,i)=>vowels.test(c)?[i]:[]);
+    const chars=Array.from(line),anchors=chars.flatMap((c,i)=>isVowel(c)?[i]:[]);
     for(const entry of entries){
       const index=entry.edge==='before'?-1:entry.edge==='after'?chars.length+entry.position:anchors[entry.position];
       if(index===undefined){issues.push(`Строка ${row+1}: нет гласной №${entry.position+1} для ${entry.value}.`);continue;}

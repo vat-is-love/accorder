@@ -69,6 +69,20 @@ test('vowels in both alphabets, case, edges and empty verses',()=>{
  const text='Аё Я\n\nAEy\nритм';
  assert.deepEqual(positions(text).map(p=>p.key),['0:-1','0:0','0:1','0:3','0:4','2:-1','2:0','2:1','2:2','2:3','3:-1','3:1','3:4']);
 });
+test('Slavic vowels with diacritics are chord positions, unlike consonants',()=>{
+ const text='ČĚŮýŘ\nŁĄĘóŚ\nЇЄіЙ\nȁȇЉ';
+ assert.deepEqual(positions(text).map(p=>p.key),[
+  '0:-1','0:1','0:2','0:3','0:5','1:-1','1:1','1:2','1:3','1:5',
+  '2:-1','2:0','2:1','2:2','2:4','3:-1','3:0','3:1','3:3',
+ ]);
+});
+test('combining marks preserve stored indexes and chord alignment on import and export',()=>{
+ const text='be\u030Cz ů', chords={'0:1':'C','0:5':'G'};
+ assert.deepEqual(positions(text).map(p=>p.index),[-1,1,5,6]);
+ const exported=exportTxt({title:'Píseň',text,chords});
+ assert.equal(exported,`Píseň\n\n C  G\n${text}\n`);
+ assert.deepEqual(importChordText(exported.split('\n').slice(2,4).join('\n')).chords,chords);
+});
 test('adjacent long chords stretch lyrics and preserve exact anchors',()=>{
  const chords={'0:-1':'Amaj7','0:0':'F#madd9','0:1':'Cmaj7/G','0:2':'G7sus4'};
  const result=layout('ао',0,chords);
