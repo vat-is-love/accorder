@@ -79,6 +79,46 @@ test('row tools restrict copy sources while allowing paste into unchorded lyrics
  assert.equal($('copy-chords').disabled,true);assert.equal($('paste-chords').disabled,false);
 });
 
+test('score shortcuts use selected rows and leave native clipboard actions available',async()=>{
+ const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
+ const start=source.indexOf("$('score').addEventListener('click'");
+ const end=source.indexOf('\nfunction render()',start);
+ const actions=[],controls={
+  editor:{hidden:false},
+  score:{addEventListener(name,fn){this[name]=fn;}},
+  'copy-chords':{click:()=>actions.push('copy')},
+  'paste-chords':{click:()=>actions.push('paste')}
+ };
+ const selection={isCollapsed:true};
+ const context={
+  $:id=>controls[id],activeTab:'chords',song:{},rowStart:0,copiedRows:[{}],
+  window:{getSelection:()=>selection},
+  document:{addEventListener(name,fn){this[name]=fn;}}
+ };
+ runInNewContext('function clearRowSelection(){rowStart=null;}\n'+source.slice(start,end),context);
+ const keydown=(overrides={})=>{
+  const event={key:'c',code:'KeyC',ctrlKey:true,target:{closest:()=>null},
+   preventDefault(){this.defaultPrevented=true;},...overrides};
+  context.document.keydown(event);
+  return !!event.defaultPrevented;
+ };
+ assert.equal(keydown(),true);
+ assert.equal(keydown({key:'м',code:'KeyV',ctrlKey:false,metaKey:true}),true);
+ assert.equal(keydown({target:{closest:()=>({})}}),false);
+ assert.equal(keydown({target:{isContentEditable:true}}),false);
+ selection.isCollapsed=false;assert.equal(keydown(),false);
+ selection.isCollapsed=true;
+ controls.score.click({target:{closest:()=>({})}});assert.equal(context.rowStart,0);
+ controls.score.click({target:{closest:()=>null}});assert.equal(context.rowStart,null);
+ assert.equal(context.copiedRows.length,1);
+ assert.equal(keydown({key:'v',code:'KeyV'}),false);
+ context.rowStart=2;
+ controls['paste-chords'].disabled=true;
+ assert.equal(keydown({key:'v',code:'KeyV'}),false);
+ context.activeTab='preview';assert.equal(keydown(),false);
+ assert.deepEqual(actions,['copy','paste']);
+});
+
 test('shared song opens as an unsaved preview; errors and concurrent edits keep editor intact',async()=>{
  const source=await readFile(new URL('../dist/app.js',import.meta.url),'utf8');
  const code=source.slice(source.indexOf('async function openSharedSong(){'),source.lastIndexOf('openSharedSong();'));

@@ -146,6 +146,17 @@ $('preview-columns').onclick=()=>{previewColumns=!previewColumns;$('preview-colu
 for(const [id,step] of [['gap-minus',-1],['gap-plus',1]])$(id).onclick=()=>{
   previewGap=Math.max(1,previewGap+step);$('gap-value').textContent=previewGap;$('gap-minus').disabled=previewGap===1;refreshPreview();
 };
+let previewSize=17;
+const minPreviewSize=12, maxPreviewSize=32;
+for(const [id,step] of [['preview-smaller',-1],['preview-larger',1]])$(id).onclick=()=>{
+  previewSize=Math.max(minPreviewSize,Math.min(maxPreviewSize,previewSize+step));
+  const preview=$('preview');
+  preview.style.setProperty('--preview-size',`${previewSize}px`);
+  preview.classList.toggle('small-preview',previewSize<=14);
+  $('preview-size').textContent=`${previewSize} px`;
+  $('preview-smaller').disabled=previewSize===minPreviewSize;
+  $('preview-larger').disabled=previewSize===maxPreviewSize;
+};
 $('home').onclick=event=>{
   event.preventDefault();void navigate(async()=>{
     $('editor').hidden=true;$('welcome').hidden=false;
@@ -214,7 +225,8 @@ function show(value){
 function fresh(){return navigate(async()=>{show({title:'',author:'',text:'',notes:'',chords:{}});$('title').focus();await library();});}
 $('new').onclick=fresh;$('first').onclick=fresh;
 let rowStart=null,rowEnd=null,copiedRows=null;
-function resetRowSelection(){rowStart=null;rowEnd=null;copiedRows=null;syncRowTools();}
+function clearRowSelection(){rowStart=null;rowEnd=null;syncRowTools();}
+function resetRowSelection(){copiedRows=null;clearRowSelection();}
 function syncRowTools(){
   const chordRows=new Set(Object.entries(song?.chords||{}).filter(([,value])=>value).map(([key])=>Number(key.split(':')[0])));
   const inRange=row=>rowStart!==null&&row>=Math.min(rowStart,rowEnd)&&row<=Math.max(rowStart,rowEnd);
@@ -237,6 +249,7 @@ $('copy-chords').onclick=()=>{
 };
 $('paste-chords').onclick=()=>{
   if(!commit())return;
+  if($('paste-chords').disabled)return;
   const plan=planChordPaste(song.text,song.chords,copiedRows,Math.min(rowStart,rowEnd));
   const count=Object.keys(plan.additions).length;
   if(!count){status('Нет аккордов для вставки.'+(plan.issues.length?' '+plan.issues.join(' '):''));return;}
@@ -246,6 +259,22 @@ $('paste-chords').onclick=()=>{
   selected=null;$('chord-editor').hidden=true;closeSuggestions();
   if(modified)changed();render();refreshPreview();status(`Вставлено аккордов: ${count}${dirty?' · есть несохранённые изменения':''}`);
 };
+$('score').addEventListener('click',event=>{
+  if(rowStart===null||event.target.closest('button, .lyric, .score-notes, #chord-editor')||window.getSelection()?.isCollapsed===false)return;
+  clearRowSelection();
+});
+document.addEventListener('keydown',event=>{
+  if(event.defaultPrevented||!(event.ctrlKey||event.metaKey)||event.altKey||event.shiftKey||event.isComposing)return;
+  if(activeTab!=='chords'||!song||$('editor').hidden||rowStart===null)return;
+  const target=event.target;
+  if(target.closest?.('input, textarea, select, dialog')||target.isContentEditable||window.getSelection()?.isCollapsed===false)return;
+  // Use the physical key for non-Latin layouts, while respecting Latin layouts.
+  const key=/^[a-z]$/i.test(event.key)?event.key.toLowerCase():event.code;
+  const action=key==='c'||key==='KeyC'?'copy-chords':key==='v'||key==='KeyV'?'paste-chords':null;
+  if(!action||$(action).disabled)return;
+  event.preventDefault();
+  if(!event.repeat)$(action).click();
+});
 function render(){
   // Keep the one real input alive when rebuilding the score.
   $('panel-chords').append($('chord-editor'));

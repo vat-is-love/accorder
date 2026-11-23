@@ -27,3 +27,12 @@
 .copy-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;font-size:12px}.copy-tools span{color:#617b5b}.song-line,.blank{margin-left:4ch}.blank{position:relative}.row-pick{position:absolute;left:-4ch;top:0;width:3ch;padding:2px 0;font:12px/24px system-ui;color:#617b5b}.copy-selected{background:#edf2e7}.copy-selected .row-pick{background:#dce6d7}
 
 .preview-chords{font-weight:700;color:#24462c}
+.lyric{width:max-content}
+#preview{font-size:var(--preview-size,17px)}
+#preview.small-preview{font-weight:500;line-height:1.65}
+.preview-zoom{display:flex;align-items:center;gap:8px}
+#preview-size{min-width:4ch;text-align:center}
+@media(max-width:560px){
+  #preview{padding:16px 12px}
+  .preview-zoom button{min-height:44px}
+}
